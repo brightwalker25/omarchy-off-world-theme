@@ -1,0 +1,5 @@
+#!/bin/bash
+# Applying Off-World should land on the wallpaper that matches the clock and the
+# weather, not whichever background happened to be next in the cycle.
+[[ $1 == "off-world" ]] || exit 0
+exec "$HOME/.local/bin/omarchy-off-world-bg" --force

@@ -1,0 +1,7 @@
+[bar]
+# Sit the bar on the darker surface so the wallpaper's neon reads as the
+# brightest thing on screen, and flag attention-seeking modules in magenta.
+background       = "#070b18"
+background-alpha = 0.92
+text             = "#c5d4f2"
+active           = "#ff5cf0"

@@ -1,0 +1,8 @@
+[Unit]
+Description=Off-World dynamic wallpaper (time of day + weather)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/omarchy-off-world-bg

@@ -1,0 +1,38 @@
+# Off-World - neon-noir for Omarchy.
+# Rain-dark blue surfaces, electric cyan and hologram magenta, Vegas amber.
+mode = "dark"
+
+accent    = "#00e5ff"
+selection = "#1d2a4f"
+muted     = "#3c4c78"
+
+background         = "#0b1020"
+dark_background    = "#070b18"
+darker_background  = "#04060f"
+lighter_background = "#161d38"
+
+foreground        = "#c5d4f2"
+dark_foreground   = "#5c6d96"
+light_foreground  = "#d9e5fb"
+bright_foreground = "#f0f6ff"
+
+red     = "#ff3d6e"
+orange  = "#ff8a3d"
+yellow  = "#ffc233"
+green   = "#2bf5a0"
+cyan    = "#00e5ff"
+blue    = "#4d8cff"
+magenta = "#ff5cf0"
+brown   = "#a05a35"
+
+bright_red     = "#ff6f92"
+bright_yellow  = "#ffd75e"
+bright_green   = "#74ffc4"
+bright_cyan    = "#7af2ff"
+bright_blue    = "#87b4ff"
+bright_magenta = "#ff92f5"
+
+# Window borders run the signature magenta-to-cyan gradient. The shell reuses
+# these for popups, notifications, the launcher and the lock screen.
+hyprland_active_border   = "rgba(ff5cf0ee) rgba(00e5ffee) 45deg"
+hyprland_inactive_border = "rgba(1d2a4faa)"

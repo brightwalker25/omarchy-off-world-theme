@@ -1,0 +1,398 @@
+#!/usr/bin/env python3
+"""Pick the Off-World wallpaper for the time of day, and decide whether it rains.
+
+Time of day chooses the scene. Rain is a weighted coin held steady for a few
+hours at a stretch, so the weather has a mood instead of flickering every time
+the timer runs - you do not know what you will come back to. Set RAIN=live in
+the config to drive it from real precipitation instead.
+
+Sunrise and sunset are computed locally from your coordinates, so the default
+mode makes no network requests at all.
+"""
+import hashlib
+import json
+import math
+import os
+import subprocess
+import sys
+import time
+import urllib.request
+from datetime import datetime, timedelta
+
+THEME = "off-world"
+HOME = os.path.expanduser("~")
+STATE = os.path.join(HOME, ".local/state/omarchy/current")
+CACHE = os.path.join(HOME, ".cache/omarchy/off-world-weather.json")
+CONF = os.path.join(HOME, ".config/omarchy/off-world.conf")
+ZONE_TAB = "/usr/share/zoneinfo/zone.tab"
+CACHE_TTL = 20 * 60
+
+# Time of day picks the scene; night rotates so it is not the same view all night.
+DAWN = "5-tyrell-approach"
+DAY = "2-off-world-colonies"
+DUSK = "6-hologram"
+NIGHT = ["1-spinner-descent", "4-neon-signage", "3-voight-kampff"]
+
+# WMO codes that mean water is falling out of the sky.
+WET_CODES = set(range(51, 68)) | set(range(71, 78)) | set(range(80, 87)) | set(range(95, 100))
+
+
+def log(*a):
+    if os.environ.get("OFF_WORLD_DEBUG"):
+        print("[off-world]", *a, file=sys.stderr)
+
+
+def read_conf():
+    conf = {"LAT": "", "LON": "", "RAIN": "random", "RAIN_CHANCE": "0.5",
+            "RAIN_SPELL_HOURS": "3", "WEATHER": ""}
+    try:
+        with open(CONF) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                conf[k.strip().upper()] = v.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return conf
+
+
+def dms(token):
+    """ISO 6709 ±DDMM[SS] / ±DDDMM[SS] as used in zone.tab -> decimal degrees."""
+    sign = -1 if token[0] == "-" else 1
+    body = token[1:]
+    if len(body) in (4, 6):          # latitude: DDMM or DDMMSS
+        deg, minutes, sec = int(body[0:2]), int(body[2:4]), int(body[4:6] or 0)
+    else:                            # longitude: DDDMM or DDDMMSS
+        deg, minutes, sec = int(body[0:3]), int(body[3:5]), int(body[5:7] or 0)
+    return sign * (deg + minutes / 60.0 + sec / 3600.0)
+
+
+def locate(conf):
+    """Config coordinates if set, otherwise the timezone's own city, offline."""
+    if conf["LAT"] and conf["LON"]:
+        try:
+            return float(conf["LAT"]), float(conf["LON"]), "config"
+        except ValueError:
+            pass
+    try:
+        tz = subprocess.run(["timedatectl", "show", "-p", "Timezone", "--value"],
+                            capture_output=True, text=True, timeout=5).stdout.strip()
+    except Exception:
+        tz = os.environ.get("TZ", "")
+    if not tz:
+        return None
+    try:
+        with open(ZONE_TAB) as fh:
+            for line in fh:
+                if line.startswith("#"):
+                    continue
+                parts = line.split("\t")
+                if len(parts) >= 3 and parts[2].strip() == tz:
+                    coords = parts[1].strip()
+                    split = max(coords.rfind("+"), coords.rfind("-"))
+                    return dms(coords[:split]), dms(coords[split:]), "timezone (%s)" % tz
+    except OSError:
+        pass
+    return None
+
+
+def sun_times(lat, lon, date, offset_hours):
+    """Local sunrise/sunset as naive local datetimes (NOAA approximation).
+
+    Good to about a minute, which is far tighter than the 90-minute dawn and
+    dusk windows below need.
+    """
+    rad = math.radians
+    n = date.toordinal() - datetime(2000, 1, 1).toordinal() + 0.0008
+    j_star = n - lon / 360.0
+    m = (357.5291 + 0.98560028 * j_star) % 360.0
+    c = 1.9148 * math.sin(rad(m)) + 0.02 * math.sin(rad(2 * m)) + 0.0003 * math.sin(rad(3 * m))
+    lam = (m + c + 180.0 + 102.9372) % 360.0
+    j_transit = 2451545.0 + j_star + 0.0053 * math.sin(rad(m)) - 0.0069 * math.sin(rad(2 * lam))
+    decl = math.asin(math.sin(rad(lam)) * math.sin(rad(23.4397)))
+    try:
+        cos_w = ((math.sin(rad(-0.833)) - math.sin(rad(lat)) * math.sin(decl))
+                 / (math.cos(rad(lat)) * math.cos(decl)))
+    except ZeroDivisionError:
+        return None
+    if cos_w > 1 or cos_w < -1:
+        return None                      # polar night or midnight sun
+    w = math.degrees(math.acos(cos_w))
+
+    def to_local(j):
+        utc = datetime(2000, 1, 1, 12) + timedelta(days=j - 2451545.0)
+        return utc + timedelta(hours=offset_hours)
+
+    return to_local(j_transit - w / 360.0), to_local(j_transit + w / 360.0)
+
+
+def rain_spell(now, chance, spell_hours):
+    """A stable coin flip: the same answer for every run inside one spell."""
+    block = (now.year, now.timetuple().tm_yday, int(now.hour // max(1, spell_hours)))
+    digest = hashlib.sha256(("off-world-%d-%d-%d" % block).encode()).digest()
+    return int.from_bytes(digest[:4], "big") / 0xFFFFFFFF < chance
+
+
+def fetch_weather(lat, lon):
+    try:
+        st = os.stat(CACHE)
+        if time.time() - st.st_mtime < CACHE_TTL:
+            with open(CACHE) as fh:
+                log("using cached weather")
+                return json.load(fh)
+    except (OSError, ValueError):
+        pass
+    url = ("https://api.open-meteo.com/v1/forecast"
+           "?latitude=%.4f&longitude=%.4f"
+           "&current=precipitation,weather_code"
+           "&daily=sunrise,sunset&timezone=auto&forecast_days=1" % (lat, lon))
+    try:
+        with urllib.request.urlopen(url, timeout=8) as resp:
+            data = json.load(resp)
+    except Exception as exc:
+        log("weather lookup failed:", exc)
+        try:                                   # stale cache beats nothing
+            with open(CACHE) as fh:
+                return json.load(fh)
+        except (OSError, ValueError):
+            return None
+    os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+    tmp = CACHE + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(data, fh)
+    os.replace(tmp, CACHE)
+    return data
+
+
+def is_wet(data):
+    if not isinstance(data, dict):
+        return False
+    cur = data.get("current") or {}
+    if (cur.get("precipitation") or 0) > 0:
+        return True
+    return cur.get("weather_code") in WET_CODES
+
+
+def sun_from_api(data):
+    try:
+        daily = data["daily"]
+        # timezone=auto gives local wall-clock strings; keep everything naive-local
+        return (datetime.fromisoformat(daily["sunrise"][0]).replace(tzinfo=None),
+                datetime.fromisoformat(daily["sunset"][0]).replace(tzinfo=None))
+    except (TypeError, KeyError, IndexError, ValueError):
+        return None
+
+
+def bucket(now, sun):
+    """dawn / day / dusk / night, from sunrise and sunset when we have them."""
+    sunrise, sunset = sun if sun else (None, None)
+    if sunrise is None or sunset is None:
+        h = now.hour
+        if 5 <= h < 8:
+            return "dawn"
+        if 8 <= h < 17:
+            return "day"
+        if 17 <= h < 20:
+            return "dusk"
+        return "night"
+    if sunrise - timedelta(minutes=60) <= now < sunrise + timedelta(minutes=90):
+        return "dawn"
+    if sunrise + timedelta(minutes=90) <= now < sunset - timedelta(minutes=90):
+        return "day"
+    if sunset - timedelta(minutes=90) <= now < sunset + timedelta(minutes=60):
+        return "dusk"
+    return "night"
+
+
+def scene_for(b, now):
+    if b == "dawn":
+        return DAWN
+    if b == "day":
+        return DAY
+    if b == "dusk":
+        return DUSK
+    slot = (now.timetuple().tm_yday * 12 + now.hour // 2) % len(NIGHT)
+    return NIGHT[slot]
+
+
+def current_theme():
+    try:
+        with open(os.path.join(STATE, "theme.name")) as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
+
+USAGE = """omarchy-off-world-bg - pick the Off-World wallpaper for now
+
+  (no args)        choose from the clock and the weather, and apply it
+  --status         print the choice and why, change nothing
+  --force          run even when another theme is active
+  --list           list the twelve wallpapers
+
+Test overrides - these apply the wallpaper so you can actually look at it:
+  --rain           force the rain variant
+  --clear          force the clear variant
+  --at HH:MM       pretend it is that time of day
+  --scene N        force scene 1-6, ignoring the clock
+  --dry-run        combine with any override to print instead of apply
+
+The timer re-checks every 15 minutes, so a forced choice reverts by itself.
+"""
+
+
+def parse_args(args):
+    opt = {"status": False, "force": False, "wet": None, "at": None,
+           "scene": None, "list": False}
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in ("-h", "--help"):
+            print(USAGE, end="")
+            raise SystemExit(0)
+        elif a in ("--status", "--dry-run"):
+            opt["status"] = True
+        elif a == "--force":
+            opt["force"] = True
+        elif a == "--list":
+            opt["list"] = True
+        elif a == "--rain":
+            opt["wet"] = True
+        elif a == "--clear":
+            opt["wet"] = False
+        elif a == "--at":
+            i += 1
+            opt["at"] = args[i] if i < len(args) else None
+        elif a == "--scene":
+            i += 1
+            opt["scene"] = args[i] if i < len(args) else None
+        else:
+            print("unknown option: %s\n" % a, file=sys.stderr)
+            print(USAGE, end="", file=sys.stderr)
+            raise SystemExit(2)
+        i += 1
+    return opt
+
+
+def all_scenes():
+    return [DAWN, DAY, DUSK] + NIGHT
+
+
+def backgrounds_dir():
+    d = os.path.join(STATE, "theme", "backgrounds")
+    if os.path.isdir(d) and current_theme() == THEME:
+        return d
+    return os.path.join(HOME, ".config/omarchy/themes", THEME, "backgrounds")
+
+
+def main():
+    opt = parse_args(sys.argv[1:])
+    bg_dir = backgrounds_dir()
+
+    if opt["list"]:
+        for name in sorted(os.listdir(bg_dir)):
+            if name.endswith(".jpg"):
+                print(name)
+        return 0
+
+    overridden = opt["wet"] is not None or opt["at"] or opt["scene"]
+
+    if not opt["force"] and not overridden and current_theme() != THEME:
+        log("theme is %r, not %r - nothing to do" % (current_theme(), THEME))
+        return 0
+
+    now = datetime.now()
+    if opt["at"]:
+        try:
+            hh, _, mm = opt["at"].partition(":")
+            now = now.replace(hour=int(hh), minute=int(mm or 0), second=0, microsecond=0)
+        except ValueError:
+            print("off-world: --at wants HH:MM, got %r" % opt["at"], file=sys.stderr)
+            return 2
+
+    conf = read_conf()
+    mode = (conf.get("RAIN") or "random").strip().lower()
+    if conf.get("WEATHER", "").strip() in ("0", "false", "no"):
+        mode = "never"                      # honour the older config key
+    try:
+        chance = min(1.0, max(0.0, float(conf.get("RAIN_CHANCE", "0.5"))))
+    except ValueError:
+        chance = 0.5
+    try:
+        spell = max(1, int(float(conf.get("RAIN_SPELL_HOURS", "3"))))
+    except ValueError:
+        spell = 3
+
+    data = None
+    sun = None
+    lat = lon = None
+    loc = locate(conf)
+    if loc:
+        lat, lon, where_loc = loc
+    else:
+        where_loc = "unknown"
+
+    if opt["wet"] is not None:
+        wet, why = opt["wet"], "forced"
+    elif mode == "live":
+        if lat is not None:
+            data = fetch_weather(lat, lon)
+            sun = sun_from_api(data)
+        wet = is_wet(data)
+        why = "live, %s" % where_loc if data else "live (lookup failed, assuming dry)"
+    elif mode == "always":
+        wet, why = True, "always"
+    elif mode == "never":
+        wet, why = False, "never"
+    else:
+        wet = rain_spell(now, chance, spell)
+        why = "random %d%% in %dh spells" % (round(chance * 100), spell)
+
+    if sun is None and lat is not None:
+        offset = datetime.now().astimezone().utcoffset()
+        sun = sun_times(lat, lon, now.date(), offset.total_seconds() / 3600.0 if offset else 0.0)
+
+    if opt["scene"]:
+        try:
+            n = int(opt["scene"])
+        except ValueError:
+            n = 0
+        match = [s for s in all_scenes() if s.startswith("%d-" % n)]
+        if not match:
+            print("off-world: --scene wants 1-6", file=sys.stderr)
+            return 2
+        scene, b = match[0], "forced"
+    else:
+        b = bucket(now, sun)
+        scene = scene_for(b, now)
+
+    name = "%s-%s.jpg" % (scene, "rain" if wet else "clear")
+    path = os.path.join(bg_dir, name)
+    if not os.path.exists(path):
+        print("off-world: no wallpaper named %s" % name, file=sys.stderr)
+        return 1
+
+    if opt["status"]:
+        sr = "%s / %s" % (sun[0].strftime("%H:%M"), sun[1].strftime("%H:%M")) if sun else "unknown"
+        print("location : %s" % where_loc)
+        print("sun      : %s" % sr)
+        print("rain     : %s  (%s)" % ("yes" if wet else "no", why))
+        print("time     : %s (%s)%s" % (b, now.strftime("%H:%M"),
+                                        "  (forced)" if opt["at"] else ""))
+        print("wallpaper: %s" % os.path.basename(path))
+        return 0
+
+    link = os.path.join(STATE, "background")
+    if os.path.realpath(link) == os.path.realpath(path):
+        log("already showing", name)
+        return 0
+
+    subprocess.run(["omarchy-theme-bg-set", path], check=False)
+    log("set", name)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

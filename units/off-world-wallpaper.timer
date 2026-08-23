@@ -1,0 +1,11 @@
+[Unit]
+Description=Re-check the Off-World wallpaper every 15 minutes
+
+[Timer]
+OnActiveSec=1min
+OnUnitActiveSec=15min
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
