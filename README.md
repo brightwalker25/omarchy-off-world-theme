@@ -5,6 +5,9 @@ follow the time of day and rain that actually falls.
 
 ![Off-World](preview.png)
 
+**[See the full gallery →](GALLERY.md)** — all twelve wallpapers wet and dry, the
+palette, and the icon set.
+
 Every image is generated. The wallpapers are drawn as SVG by the scripts in
 `src/`, rendered with `rsvg-convert`, then given a bloom and grain pass. Nothing
 is taken from any film.
@@ -29,7 +32,7 @@ reuses for popups, notifications, the launcher and the lock screen. Alacritty,
 foot, kitty, ghostty, btop, neovim, VSCode and Chromium all follow.
 
 **Twelve wallpapers**, six scenes in a wet and a dry plate, rendered at
-3840x2400:
+3840x2400. They are all in the [gallery](GALLERY.md):
 
 | Scene | |
 |---|---|
@@ -149,6 +152,10 @@ python3 gen_icons.py              # the icon theme
 Scene seeds are fixed, so a rebuild reproduces the same images. Change the
 `random.Random(...)` seed at the top of a `sceneN.py` for a different layout of
 the same design. `build.py` writes straight into the installed theme.
+
+## See also
+
+- [GALLERY.md](GALLERY.md) — every wallpaper, the palette, the icons
 
 ## License
 
