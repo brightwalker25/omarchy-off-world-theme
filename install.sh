@@ -6,15 +6,17 @@
 # here via `omarchy theme install` you are already in the right place and this
 # script only adds the parts that live outside a theme directory.
 #
-#   ./install.sh              everything
-#   ./install.sh --no-rain    skip the animated rain shell plugin
+#   ./install.sh                everything, with rain that falls
+#   ./install.sh --static-rain  painted rain in the wallpaper, no shell plugin
+#   ./install.sh --no-rain      no rain at all
 set -euo pipefail
 src="$(cd "$(dirname "$0")" && pwd)"
 
-WANT_RAIN=1
+RAIN_MODE=animated
 for a in "$@"; do
   case "$a" in
-    --no-rain) WANT_RAIN=0 ;;
+    --no-rain) RAIN_MODE=none ;;
+    --static-rain) RAIN_MODE=static ;;
     -h|--help) sed -n '2,10p' "$0" | sed 's/^# \?//'; exit 0 ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac
@@ -69,13 +71,22 @@ install -m 644 "$src/units/off-world-wallpaper.timer" "$UNIT_DIR/"
 systemctl --user daemon-reload
 systemctl --user enable --now off-world-wallpaper.timer
 
-if (( WANT_RAIN )); then
-  echo "==> rain     -> background shell plugin"
-  python3 "$src/plugin/install-rain.py"
-  omarchy restart shell >/dev/null 2>&1 || true
-else
-  echo "==> rain     skipped (--no-rain)"
-fi
+case "$RAIN_MODE" in
+  animated)
+    echo "==> rain     falling (particle layer over still wet plates)"
+    cp "$src"/plates/animated-rain/*.jpg "$THEME_DIR/backgrounds/"
+    python3 "$src/plugin/install-rain.py"
+    omarchy restart shell >/dev/null 2>&1 || true
+    ;;
+  static)
+    echo "==> rain     painted into the wallpaper, no plugin, no CPU cost"
+    cp "$src"/plates/static-rain/*.jpg "$THEME_DIR/backgrounds/"
+    python3 "$src/plugin/install-rain.py" --remove >/dev/null 2>&1 || true
+    ;;
+  none)
+    echo "==> rain     skipped (--no-rain); wet plates will look still"
+    ;;
+esac
 
 echo
 echo "Done. Apply it with:  omarchy theme set off-world"

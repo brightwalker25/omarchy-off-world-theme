@@ -6,10 +6,14 @@ taken from any film.
 
 Thumbnails are 1000px. Click one for the full 3840x2400 original.
 
-Each scene ships as a **dry** and a **wet** plate. The wet plates carry the wet
-ground, reflections and heavy haze — but no painted raindrops, because when one
-is on screen the [animated rain](README.md#rain-that-falls) supplies the falling
-kind. That is why the wet plates look still on their own.
+Each scene ships as a **dry** and a **wet** plate. The wet plates below carry the
+wet ground, reflections and heavy haze — but no painted raindrops, because when
+one is on screen the live particle layer supplies the falling kind. That is why
+they look still here.
+
+If you would rather not spend the CPU on falling rain, `./rain-mode.sh static`
+swaps in a second set with the drops rendered into the image. Same scenes, rain
+that holds still. See [rain, falling or painted](README.md#rain-falling-or-painted).
 
 ---
 
@@ -29,13 +33,14 @@ The sun over the dust, a ziggurat on the right, and a single figure for scale.
 |:---:|:---:|
 | [![Off-World Colonies, dry](docs/thumbs/2-off-world-colonies-clear.jpg)](backgrounds/2-off-world-colonies-clear.jpg) | [![Off-World Colonies, wet](docs/thumbs/2-off-world-colonies-rain.jpg)](backgrounds/2-off-world-colonies-rain.jpg) |
 
-## Dusk — Hologram
+## Dusk — Unicorn
 
-A projected figure the size of a building, standing over the skyline.
+Gaff's origami unicorn, folded from light and rearing over the skyline —
+the Director's Cut, projected.
 
 | Dry | Wet |
 |:---:|:---:|
-| [![Hologram, dry](docs/thumbs/6-hologram-clear.jpg)](backgrounds/6-hologram-clear.jpg) | [![Hologram, wet](docs/thumbs/6-hologram-rain.jpg)](backgrounds/6-hologram-rain.jpg) |
+| [![Unicorn, dry](docs/thumbs/6-hologram-clear.jpg)](backgrounds/6-hologram-clear.jpg) | [![Unicorn, wet](docs/thumbs/6-hologram-rain.jpg)](backgrounds/6-hologram-rain.jpg) |
 
 ## Night
 

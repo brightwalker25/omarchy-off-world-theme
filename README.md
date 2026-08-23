@@ -21,8 +21,15 @@ cd ~/.config/omarchy/themes/off-world && ./install.sh
 
 The first command installs and applies the palette and wallpapers. The second
 adds the parts that live outside a theme directory: the icon set, the wallpaper
-switcher, its timer, and the animated rain. Use `./install.sh --no-rain` to skip
-the rain.
+switcher, its timer, and the rain.
+
+Rain comes two ways — pick one at install time, or switch later:
+
+```bash
+./install.sh                 # falling rain: a live particle layer  (default)
+./install.sh --static-rain   # painted rain: baked into the wallpaper, no CPU cost
+./install.sh --no-rain       # no rain at all
+```
 
 ## What's in it
 
@@ -41,7 +48,7 @@ foot, kitty, ghostty, btop, neovim, VSCode and Chromium all follow.
 | Voight-Kampff | the empathy test seen from inside the machine |
 | Neon Signage | an alley of light through wet glass |
 | Tyrell Approach | a wireframe ziggurat over a light grid |
-| Hologram | a projected figure standing over the city |
+| Unicorn | Gaff's folded unicorn, rearing over the city |
 
 **Twenty-three icons.** A GTK icon theme of neon-noir folders with a
 magenta-to-cyan edge and colour-coded glyphs, inheriting `Yaru-magenta-dark` so
@@ -55,7 +62,7 @@ Time of day chooses the scene:
 |---|---|
 | Dawn | Tyrell Approach |
 | Day | Off-World Colonies |
-| Dusk | Hologram |
+| Dusk | Unicorn |
 | Night | rotates Spinner Descent, Neon Signage, Voight-Kampff |
 
 Sunrise and sunset are computed locally from your coordinates, so dawn and dusk
@@ -96,11 +103,33 @@ LON=
 comes from your system timezone via `/usr/share/zoneinfo/zone.tab` — the nearest
 listed city, resolved on your machine, never IP geolocation.
 
-## Rain that falls
+## Rain, falling or painted
 
-When a wet plate is on screen, a particle layer drizzles over it. The wet plates
-carry the wet ground, reflections and heavy haze but no painted drops, so the
-only rain you see is the moving kind.
+Each scene has a dry plate and a wet one — wet ground, reflections, heavy haze.
+What puts rain *in the air* is up to you.
+
+| | Falling | Painted |
+|---|---|---|
+| How | a particle layer over still wet plates | drops rendered into the image |
+| Moves | yes | no |
+| CPU while raining | ~13% of one core | none |
+| Needs the shell plugin | yes | no |
+
+Switch whenever you like — this swaps the plates and adds or removes the plugin:
+
+```bash
+./rain-mode.sh animated   # rain that falls
+./rain-mode.sh static     # rain that does not
+./rain-mode.sh status     # which is active
+```
+
+Both sets ship in [`plates/`](plates), so switching never re-renders anything.
+
+### The falling kind
+
+When a wet plate is on screen, a particle layer drizzles over it. Those plates
+deliberately carry no painted drops, so the only rain you see is the moving
+kind — which is why they look still on their own.
 
 It is a small addition to Omarchy's own background plugin. Because that plugin
 ships read-only, `plugin/install-rain.py` clones it into your config with
@@ -116,8 +145,9 @@ omarchy restart shell
 **Cost.** Measured on a 2880x1800 display: about 13% of one CPU core while it is
 raining, and exactly zero when it is dry, because the particle system is stopped
 rather than hidden. No measurable memory, and no growth over time. On a laptop
-that is a real battery consideration — tune or disable it if you would rather
-have the hours back.
+that is a real battery consideration — turn `density` down, or run
+`./rain-mode.sh static` and get the hours back with rain that simply does not
+move.
 
 Tuning lives at the top of the rain block in your cloned
 `~/.config/omarchy/plugins/*.background/Background.qml`:
@@ -133,7 +163,7 @@ Both hot-reload on save. `density: 0.5` roughly halves the CPU cost.
 
 ```bash
 systemctl --user disable --now off-world-wallpaper.timer   # stop the rotation
-python3 plugin/install-rain.py --remove                    # stop the rain
+./rain-mode.sh static                                      # stop the animation
 omarchy theme set tokyo-night                              # leave the theme
 ```
 
@@ -145,7 +175,8 @@ The theme keeps working with the timer off; backgrounds then cycle manually with
 ```bash
 cd src
 python3 build.py                  # all twelve, ~7 min
-python3 build_rain_plates.py      # just the wet plates, no painted drops
+python3 build_rain_plates.py      # wet plates, no painted drops (animated mode)
+python3 build_static_rain.py      # wet plates with painted drops (static mode)
 python3 gen_icons.py              # the icon theme
 ```
 

@@ -1,6 +1,7 @@
-"""6 - Joi: a hologram the size of a building, standing over the rain."""
+"""6 - Unicorn: Gaff's folded unicorn, projected over the city."""
 import math, random
 from palette import *
+import origami
 
 NAME = "hologram"
 
@@ -68,79 +69,58 @@ def build(rain=True):
             x += w * rnd.uniform(0.95, 1.5)
         S.append('<g fill="%s" opacity="%.2f">%s</g>' % (col, op, "".join(body)))
 
-    # ---- the hologram: a standing figure abstracted to light
-    top, bot = H * 0.075, HZ + H * 0.015
-    hh = bot - top
-    hw = W * 0.082
-    hd = hw * 0.36                       # head radius
-    sy = top + hd * 1.95                 # shoulder line
-    wy = top + hh * 0.40                 # waist
+    # ---- the hologram: a folded unicorn, rearing, projected over the skyline
+    top, bot = H * 0.055, HZ + H * 0.02
+    uh = bot - top
+    k = uh / 112.0                      # unit space runs y -10..100
+    ux = HX - 56.0 * k                  # unit x spans ~13..99, centre 56
+    uy = top + 10.0 * k
+    XF = 'translate(%.2f,%.2f) scale(%.4f)' % (ux, uy, k)
 
-    figure = (
-        'M %.1f %.1f '
-        'C %.1f %.1f %.1f %.1f %.1f %.1f '          # shoulder -> waist, left
-        'C %.1f %.1f %.1f %.1f %.1f %.1f '          # waist -> hem, left
-        'L %.1f %.1f '
-        'C %.1f %.1f %.1f %.1f %.1f %.1f '          # hem -> waist, right
-        'C %.1f %.1f %.1f %.1f %.1f %.1f Z'         # waist -> shoulder, right
-        % (HX - hw * 0.62, sy,
-           HX - hw * 0.70, sy + hh * 0.10, HX - hw * 0.46, sy + hh * 0.14, HX - hw * 0.40, wy,
-           HX - hw * 0.62, wy + hh * 0.22, HX - hw * 0.78, bot - hh * 0.16, HX - hw * 1.18, bot,
-           HX + hw * 0.94, bot,
-           HX + hw * 0.78, bot - hh * 0.16, HX + hw * 0.62, wy + hh * 0.22, HX + hw * 0.40, wy,
-           HX + hw * 0.46, sy + hh * 0.14, HX + hw * 0.70, sy + hh * 0.10, HX + hw * 0.62, sy))
+    fig = origami.facets_svg(body=MAGENTA, edge=mix(MAGENTA, "#ffffff", 0.65), edge_w=0.5)
+    sil = origami.silhouette()
 
-    fig = ('<path d="%s"/><circle cx="%.1f" cy="%.1f" r="%.1f"/>'
-           '<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f"/>'
-           % (figure, HX, top + hd, hd, HX - hd * 0.34, top + hd * 1.5, hd * 0.68, hd * 1.2))
-    # arms held close, drawn as tapered strokes
-    arms = ('<path d="M %.1f %.1f C %.1f %.1f %.1f %.1f %.1f %.1f" fill="none" stroke-width="%.1f" stroke-linecap="round"/>'
-            '<path d="M %.1f %.1f C %.1f %.1f %.1f %.1f %.1f %.1f" fill="none" stroke-width="%.1f" stroke-linecap="round"/>'
-            % (HX - hw * 0.60, sy + hh * 0.02, HX - hw * 0.92, sy + hh * 0.12,
-               HX - hw * 0.80, wy + hh * 0.02, HX - hw * 0.52, wy + hh * 0.10, hw * 0.16,
-               HX + hw * 0.60, sy + hh * 0.02, HX + hw * 0.92, sy + hh * 0.12,
-               HX + hw * 0.80, wy + hh * 0.02, HX + hw * 0.52, wy + hh * 0.10, hw * 0.16))
+    S.append('<defs><clipPath id="uniclip" clipPathUnits="userSpaceOnUse">'
+             '<g transform="%s"><path d="%s"/></g></clipPath></defs>' % (XF, sil))
 
-    S.append('<defs><clipPath id="figclip"><path d="%s"/><circle cx="%.1f" cy="%.1f" r="%.1f"/>'
-             '<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f"/></clipPath></defs>'
-             % (figure, HX, top + hd, hd, HX - hd * 0.34, top + hd * 1.5, hd * 0.68, hd * 1.2))
+    # bloom passes, then the crisp folds
+    S.append('<g transform="%s" filter="url(#big)" opacity="0.85"><path d="%s" fill="%s" opacity="0.9"/></g>'
+             % (XF, sil, MAGENTA))
+    S.append('<g transform="%s" filter="url(#med)" opacity="0.55"><path d="%s" fill="%s"/></g>'
+             % (XF, sil, ROSE))
+    S.append('<g transform="%s" opacity="0.92">%s</g>' % (XF, fig))
+    # rim light along the folded edge
+    S.append('<g transform="%s" filter="url(#low)" opacity="0.5">'
+             '<path d="%s" fill="none" stroke="%s" stroke-width="0.7"/></g>'
+             % (XF, sil, mix(MAGENTA, "#ffffff", 0.7)))
 
-    S.append('<g fill="url(#holo)" opacity="0.85" filter="url(#big)">%s</g>' % fig)
-    S.append('<g fill="url(#holo)" opacity="0.60" filter="url(#med)">%s</g>' % fig)
-    S.append('<g stroke="url(#holo)" opacity="0.32" filter="url(#med)">%s</g>' % arms)
-    S.append('<g fill="url(#holo)" opacity="0.45">%s</g>' % fig)
-    S.append('<g stroke="%s" opacity="0.22">%s</g>' % (mix(MAGENTA, "#ffffff", 0.3), arms))
-    # rim light along the silhouette
-    S.append('<g fill="none" stroke="%s" stroke-width="4" opacity="0.55" filter="url(#low)">'
-             '<path d="%s"/></g>' % (mix(MAGENTA, "#ffffff", 0.55), figure))
-
-    # scan structure, clipped so it never overhangs her
-    S.append('<g clip-path="url(#figclip)">')
-    S.append('<g fill="#04040e" opacity="0.42">%s</g>' % "".join(
-        '<rect x="%.0f" y="%.1f" width="%.0f" height="%.1f"/>'
-        % (HX - hw * 1.6, top + i * (hh / 110.0), hw * 3.2, (hh / 110.0) * 0.45) for i in range(110)))
+    # scan structure, clipped to the unicorn so it never overhangs
+    S.append('<g clip-path="url(#uniclip)">')
+    S.append('<g fill="#04040e" opacity="0.40">%s</g>' % "".join(
+        '<rect x="0" y="%.1f" width="%d" height="%.1f"/>' % (top + i * (uh / 120.0), W, (uh / 120.0) * 0.45)
+        for i in range(120)))
     for _ in range(6):
-        y = top + hh * rnd.uniform(0.04, 0.96)
-        S.append('<rect x="%.0f" y="%.1f" width="%.0f" height="%.1f" fill="%s" opacity="%.2f"/>'
-                 % (HX - hw * 1.6, y, hw * 3.2, rnd.uniform(5, 16), mix(MAGENTA, "#ffffff", 0.75), rnd.uniform(0.18, 0.40)))
+        y = top + uh * rnd.uniform(0.04, 0.96)
+        S.append('<rect x="0" y="%.1f" width="%d" height="%.1f" fill="%s" opacity="%.2f"/>'
+                 % (y, W, rnd.uniform(5, 16), mix(MAGENTA, "#ffffff", 0.75), rnd.uniform(0.18, 0.40)))
     S.append('</g>')
-    # one glitch slice offset sideways, outside the clip, sells the projection
-    gy = top + hh * 0.52
-    S.append('<g opacity="0.35" transform="translate(%.0f,0)"><g clip-path="url(#figclip)">'
-             '<rect x="%.0f" y="%.1f" width="%.0f" height="%.1f" fill="%s"/></g></g>'
-             % (hw * 0.22, HX - hw * 1.6, gy, hw * 3.2, hh * 0.035, CYAN))
+    # a slice offset sideways: the projection stuttering
+    S.append('<g opacity="0.32" transform="translate(%.0f,0)"><g clip-path="url(#uniclip)">'
+             '<rect x="0" y="%.1f" width="%d" height="%.1f" fill="%s"/></g></g>'
+             % (uh * 0.02, top + uh * 0.52, W, uh * 0.03, CYAN))
 
-    # projector shafts rising past her
+    # projector shafts rising past it
     for dx in (-1, 1):
-        S.append('<polygon points="%.0f,%.0f %.0f,%.0f %.0f,%.0f %.0f,%.0f" fill="url(#shaft)" opacity="0.45" filter="url(#big)"/>'
-                 % (HX + dx * hw * 0.2, top, HX + dx * hw * 1.5, top, HX + dx * hw * 2.6, bot, HX + dx * hw * 0.5, bot))
+        S.append('<polygon points="%.0f,%.0f %.0f,%.0f %.0f,%.0f %.0f,%.0f" fill="url(#shaft)" opacity="0.42" filter="url(#big)"/>'
+                 % (HX + dx * W * 0.020, top, HX + dx * W * 0.075, top,
+                    HX + dx * W * 0.130, bot, HX + dx * W * 0.030, bot))
 
     # ---- ground
     S.append('<rect x="0" y="%d" width="%d" height="%d" fill="url(#ground)"/>' % (HZ + 60, W, H - HZ - 60))
     S.append('<rect x="0" y="%d" width="%d" height="140" fill="%s" opacity="0.30" filter="url(#huge)"/>' % (HZ, W, MAGENTA))
     S.append('<g filter="url(#smear)" opacity="%.2f">'
              '<rect x="%.0f" y="%d" width="%.0f" height="%d" fill="%s"/></g>'
-             % (0.75 if rain else 0.35, HX - hw * 1.3, HZ + 60, hw * 2.6, int(H * 0.22), MAGENTA))
+             % (0.75 if rain else 0.35, HX - uh * 0.22, HZ + 60, uh * 0.44, int(H * 0.22), MAGENTA))
     for _ in range(260 if rain else 80):
         y = rnd.uniform(HZ + 70, H); d = (y - HZ - 70) / max(1.0, H - HZ - 70)
         S.append('<rect x="%.0f" y="%.0f" width="%.0f" height="%.0f" rx="2" fill="%s" opacity="%.2f"/>'
