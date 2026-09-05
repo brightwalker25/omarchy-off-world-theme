@@ -105,6 +105,23 @@ needs no network call. Verified against Open-Meteo: within two minutes.
 | `SUPER + CTRL + ALT + N` | flip the wet and dry plate |
 | `SUPER + CTRL + ALT + A` | back to automatic, now |
 
+Nothing is bound for you. Put this in `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("SUPER + CTRL + ALT + SPACE", "Next Off-World wallpaper",
+  "omarchy-off-world-bg --next")
+o.bind("SUPER + CTRL + ALT + SHIFT + SPACE", "Previous Off-World wallpaper",
+  "omarchy-off-world-bg --prev")
+o.bind("SUPER + CTRL + ALT + N", "Off-World: toggle rain",
+  "omarchy-off-world-bg --toggle-rain")
+o.bind("SUPER + CTRL + ALT + A", "Off-World: back to automatic",
+  "omarchy-off-world-bg --auto")
+```
+
+If a binding does nothing, give the command its absolute path
+(`$HOME/.local/bin/omarchy-off-world-bg`): Hyprland does not necessarily have
+`~/.local/bin` on `PATH`.
+
 A pick you make by hand is **held until the light changes** — dawn to day, day
 to dusk — and then the automatic modes take over again. That is long enough to
 be worth pressing and short enough that it heals on its own without you having
