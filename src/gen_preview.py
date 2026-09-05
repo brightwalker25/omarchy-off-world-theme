@@ -15,12 +15,13 @@ SWATCHES = [
 TERM = [
     [("#5c6d96", "user"), ("#00e5ff", "@"), ("#ff5cf0", "nexus"), ("#5c6d96", " ~/work "), ("#ffc233", "main"), ("#c5d4f2", " $ ")],
     [("#c5d4f2", "omarchy theme set off-world")],
-    [("#2bf5a0", "  applied "), ("#c5d4f2", "Off-World"), ("#5c6d96", "  ->  12 backgrounds, 23 icons")],
+    [("#2bf5a0", "  applied "), ("#c5d4f2", "Off-World"), ("#5c6d96", "  ->  19 backgrounds, 23 icons")],
     [],
     [("#5c6d96", "user"), ("#00e5ff", "@"), ("#ff5cf0", "nexus"), ("#5c6d96", " ~/work "), ("#ffc233", "main"), ("#c5d4f2", " $ ")],
     [("#c5d4f2", "omarchy-off-world-bg --status")],
+    [("#5c6d96", "  mode     : "), ("#2bf5a0", "cycle")],
+    [("#5c6d96", "  phase    : "), ("#ff8a3d", "night"), ("#5c6d96", " (23:41)")],
     [("#5c6d96", "  rain     : "), ("#4d8cff", "yes"), ("#5c6d96", "  (random 50% in 3h spells)")],
-    [("#5c6d96", "  time     : "), ("#ff8a3d", "night"), ("#5c6d96", " (23:41)")],
     [("#5c6d96", "  wallpaper: "), ("#ff5cf0", "1-spinner-descent-rain.jpg")],
     [],
     [("#5c6d96", "user"), ("#00e5ff", "@"), ("#ff5cf0", "nexus"), ("#5c6d96", " ~/work "), ("#ffc233", "main"), ("#c5d4f2", " $ "), ("#f0f6ff", "█")],
@@ -84,11 +85,19 @@ S.append('<text x="%d" y="%d" font-family="%s" font-size="62" fill="%s" letter-s
          % (IX + 30, IY + 118, MONO, CYAN))
 S.append('<text x="%d" y="%d" font-family="%s" font-size="21" fill="%s" opacity="0.85" letter-spacing="2">a new life awaits you</text>'
          % (IX + 32, IY + 162, MONO, MAGENTA))
-for i, (txt, col) in enumerate((("12 wallpapers  ·  wet + dry plates", "#c5d4f2"),
-                                ("time of day picks the scene", "#5c6d96"),
+for i, (txt, col) in enumerate((("19 wallpapers  ·  12 scenes  ·  4 phases", "#c5d4f2"),
+                                ("clock, weather, or your own hand", "#5c6d96"),
                                 ("rain that actually falls", "#5c6d96"))):
     S.append('<text x="%d" y="%d" font-family="%s" font-size="19" fill="%s">%s</text>'
              % (IX + 32, IY + 208 + i * 30, MONO, col, txt))
 S.append('</svg>')
 open(sys.argv[1] if len(sys.argv) > 1 else "svg/preview-overlay.svg", "w").write("".join(S))
 print("overlay written")
+
+# The overlay on its own is not the preview. Composite it over a wallpaper:
+#
+#   python3 gen_preview.py svg/preview-overlay.svg
+#   rsvg-convert -w 1800 -h 1012 svg/preview-overlay.svg -o /tmp/ow-overlay.png
+#   magick ../backgrounds/1-spinner-descent-rain.jpg \
+#     -resize 1800x1012^ -gravity center -extent 1800x1012 /tmp/ow-prev-bg.png
+#   magick /tmp/ow-prev-bg.png /tmp/ow-overlay.png -compose over -composite ../preview.png

@@ -3,9 +3,11 @@ import math, random
 from palette import *
 
 NAME = "tyrell-approach"
+LIGHT = "dawn"
+OUTDOOR = True
 
 
-def build(rain=True):
+def build(rain=True, light=LIGHT):
     rnd = random.Random(101)
     HZ = int(H * 0.585)
     S = [svg_open(), '<defs>']
@@ -15,11 +17,19 @@ def build(rain=True):
     else:
         stops = (("0", "#03040f"), ("0.22", "#0d1240"), ("0.42", "#2e1663"),
                  ("0.60", "#7a2178"), ("0.78", "#d94a7a"), ("1", "#2a1642"))
+    # First light belongs to the sky here, so the zenith takes the whole grade
+    # and the sunrise band near the horizon is left alone to stay the hottest
+    # part of the frame.
+    stops = (lit_stops(stops[:3], light)
+             + lit_stops(stops[3:5], light, k=0.35)
+             + lit_stops(stops[5:], light, k=0.8))
     S.append('<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">%s</linearGradient>'
              % "".join('<stop offset="%s" stop-color="%s"/>' % s for s in stops))
+    gs = lit_stops((("0", "#2a1046"), ("0.35", "#0d0a26"), ("1", "#04050f")), light, k=0.7)
     S.append('<linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">'
-             '<stop offset="0" stop-color="#2a1046" stop-opacity="0.95"/>'
-             '<stop offset="0.35" stop-color="#0d0a26"/><stop offset="1" stop-color="#04050f"/></linearGradient>')
+             '<stop offset="0" stop-color="%s" stop-opacity="0.95"/>'
+             '<stop offset="0.35" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient>'
+             % tuple(c for _, c in gs))
     S.append('<radialGradient id="hzglow"><stop offset="0" stop-color="%s" stop-opacity="0.9"/>'
              '<stop offset="0.45" stop-color="%s" stop-opacity="0.30"/>'
              '<stop offset="1" stop-color="%s" stop-opacity="0"/></radialGradient>' % (CYAN, MAGENTA, MAGENTA))
@@ -35,7 +45,7 @@ def build(rain=True):
     S.append('<rect width="%d" height="%d" fill="url(#sky)"/>' % (W, H))
 
     # ---- stars, thinned out by cloud when it rains
-    for _ in range(300 if rain else 700):
+    for _ in range(stars(300 if rain else 700, light)):
         y = rnd.uniform(0, HZ * 0.92)
         S.append('<circle cx="%.0f" cy="%.0f" r="%.1f" fill="#e6f0ff" opacity="%.2f"/>'
                  % (rnd.uniform(0, W), y, rnd.uniform(0.9, 3.0), rnd.uniform(0.08, 0.85) * (1 - y / HZ) * (0.5 if rain else 1.0)))
@@ -44,7 +54,8 @@ def build(rain=True):
 
     # ---- the disc sitting on the horizon behind everything
     S.append('<circle cx="%.0f" cy="%.0f" r="%.0f" fill="url(#disc)"/>' % (W * 0.30, HZ - H * 0.055, H * 0.20))
-    S.append('<ellipse cx="%.0f" cy="%.0f" rx="%.0f" ry="%.0f" fill="url(#hzglow)" opacity="0.85"/>' % (VPX, VPY, W * 0.62, H * 0.20))
+    S.append('<ellipse cx="%.0f" cy="%.0f" rx="%.0f" ry="%.0f" fill="url(#hzglow)" opacity="%.2f"/>'
+             % (VPX, VPY, W * 0.62, H * 0.20, glow(0.85, light)))
 
     # ---- distant city, low and dark, so the ziggurat dominates
     x = -200
@@ -79,9 +90,9 @@ def build(rain=True):
                      % (ZX - ZHALF * 0.07 - t * 6, ZTOP, ZX - ZHALF * (0.07 + 0.93 * 1.0) * (0.35 + t * 0.65), ZBASE))
         edges.append('<path d="M %.1f %.1f L %.1f %.1f"/>'
                      % (ZX + ZHALF * 0.07 + t * 6, ZTOP, ZX + ZHALF * (0.07 + 0.93 * 1.0) * (0.35 + t * 0.65), ZBASE))
-    S.append('<g fill="#0a0620" opacity="0.55">%s</g>' % "".join(faces))
-    S.append('<g fill="none" stroke="%s" stroke-width="9" opacity="0.5" filter="url(#big)">%s</g>' % (CYAN, "".join(edges)))
-    S.append('<g fill="none" stroke="%s" stroke-width="5" opacity="0.75" filter="url(#med)">%s</g>' % (CYAN, "".join(edges)))
+    S.append('<g fill="%s" opacity="0.55">%s</g>' % (lit("#0a0620", light, 0.6), "".join(faces)))
+    S.append('<g fill="none" stroke="%s" stroke-width="9" opacity="%.2f" filter="url(#big)">%s</g>' % (CYAN, glow(0.5, light), "".join(edges)))
+    S.append('<g fill="none" stroke="%s" stroke-width="5" opacity="%.2f" filter="url(#med)">%s</g>' % (CYAN, glow(0.75, light), "".join(edges)))
     S.append('<g fill="none" stroke="%s" stroke-width="2.5" opacity="0.95">%s</g>' % (mix(CYAN, "#ffffff", 0.5), "".join(edges)))
     S.append('<circle cx="%.0f" cy="%.0f" r="14" fill="%s"/>' % (ZX, ZTOP - 6, ROSE))
     S.append('<circle cx="%.0f" cy="%.0f" r="70" fill="%s" opacity="0.8" filter="url(#med)"/>' % (ZX, ZTOP - 6, ROSE))
@@ -95,12 +106,12 @@ def build(rain=True):
         grid.append('<line x1="0" y1="%.1f" x2="%d" y2="%.1f"/>' % (VPY + (H - VPY) * t, W, VPY + (H - VPY) * t))
     for j in range(-30, 31):
         grid.append('<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%d"/>' % (VPX, VPY, VPX + j * (W * 0.115), H))
-    S.append('<g stroke="%s" stroke-width="7" opacity="0.30" filter="url(#big)">%s</g>' % (MAGENTA, "".join(grid)))
-    S.append('<g stroke="%s" stroke-width="3" opacity="0.55" filter="url(#low)">%s</g>' % (MAGENTA, "".join(grid)))
+    S.append('<g stroke="%s" stroke-width="7" opacity="%.2f" filter="url(#big)">%s</g>' % (MAGENTA, glow(0.30, light), "".join(grid)))
+    S.append('<g stroke="%s" stroke-width="3" opacity="%.2f" filter="url(#low)">%s</g>' % (MAGENTA, glow(0.55, light), "".join(grid)))
     S.append('<g stroke="%s" stroke-width="1.6" opacity="0.75">%s</g>' % (mix(MAGENTA, CYAN, 0.35), "".join(grid)))
 
     # ---- horizon haze sitting on the grid
-    S.append('<rect x="0" y="%d" width="%d" height="150" fill="%s" opacity="0.55" filter="url(#huge)"/>' % (HZ - 75, W, MAGENTA))
+    S.append('<rect x="0" y="%d" width="%d" height="150" fill="%s" opacity="%.2f" filter="url(#huge)"/>' % (HZ - 75, W, MAGENTA, glow(0.55, light)))
     for _ in range(11):
         S.append('<ellipse cx="%.0f" cy="%.0f" rx="%.0f" ry="%.0f" fill="%s" opacity="%.2f" filter="url(#huge)"/>'
                  % (rnd.uniform(0, W), rnd.uniform(HZ - H * 0.14, HZ + H * 0.10), rnd.uniform(500, 1500),
@@ -128,6 +139,7 @@ def build(rain=True):
                      % (rnd.uniform(0, W), rnd.uniform(0, H), rnd.uniform(1.0, 3.6),
                         rnd.choice([CYAN, MAGENTA, "#ffffff"]), rnd.uniform(0.10, 0.5)))
 
-    S.append(vignette(strength=0.72, inner=0.28))
+    S.append(ambient(light))
+    S.append(vignette(strength=vig(0.72, light), inner=0.28))
     S.append('</svg>')
     return "".join(S)

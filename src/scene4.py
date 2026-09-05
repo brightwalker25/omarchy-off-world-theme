@@ -3,20 +3,26 @@ import random
 from palette import *
 
 NAME = "neon-signage"
+LIGHT = "night"
+OUTDOOR = True
 # weighted so the frame reads cyan/magenta first, amber as the accent
 NEON = [CYAN, CYAN, CYAN, BLUE, MAGENTA, MAGENTA, ROSE, VIOLET, AMBER, GOLD, MINT]
 
 
-def build(rain=True):
+def build(rain=True, light=LIGHT):
     rnd = random.Random(77)
     FLOOR = int(H * 0.855)
     S = [svg_open(), '<defs>']
     S.append('<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">'
-             '<stop offset="0" stop-color="#04061a"/><stop offset="0.42" stop-color="#0a0d2e"/>'
-             '<stop offset="0.74" stop-color="#170e36"/><stop offset="1" stop-color="#04060f"/></linearGradient>')
+             '<stop offset="0" stop-color="%s"/><stop offset="0.42" stop-color="%s"/>'
+             '<stop offset="0.74" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient>'
+             % tuple(c for _, c in lit_stops((("0", "#04061a"), ("0.42", "#0a0d2e"),
+                                              ("0.74", "#170e36"), ("1", "#04060f")), light)))
     S.append('<linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">'
-             '<stop offset="0" stop-color="#1c1240" stop-opacity="0.85"/>'
-             '<stop offset="0.5" stop-color="#0a0a1e"/><stop offset="1" stop-color="#03050e"/></linearGradient>')
+             '<stop offset="0" stop-color="%s" stop-opacity="0.85"/>'
+             '<stop offset="0.5" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient>'
+             % tuple(c for _, c in lit_stops((("0", "#1c1240"), ("0.5", "#0a0a1e"),
+                                              ("1", "#03050e")), light, k=0.75)))
     S.append('<filter id="huge" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="170"/></filter>')
     S.append('<filter id="bokeh" x="-70%" y="-70%" width="240%" height="240%"><feGaussianBlur stdDeviation="90"/></filter>')
     S.append('<filter id="big" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="55"/></filter>')
@@ -31,19 +37,20 @@ def build(rain=True):
     for _ in range(46):
         S.append('<circle cx="%.0f" cy="%.0f" r="%.0f" fill="%s" opacity="%.2f" filter="url(#huge)"/>'
                  % (rnd.uniform(0, W), rnd.uniform(0, FLOOR), rnd.uniform(150, 520),
-                    rnd.choice(NEON), rnd.uniform(0.10, 0.30) * (1.0 if rain else 0.78)))
+                    rnd.choice(NEON), glow(rnd.uniform(0.10, 0.30) * (1.0 if rain else 0.78), light)))
 
     # ---- facades: the signs need walls to hang on
     fac = []
+    facade = lit("#070a1c", light, 0.5)
     x = -200
     while x < W + 200:
         w = rnd.uniform(180, 520)
         top = rnd.uniform(-100, H * 0.30)
-        fac.append('<rect x="%.0f" y="%.0f" width="%.0f" height="%.0f" fill="#070a1c" opacity="%.2f"/>'
-                   % (x, top, w, FLOOR - top + 40, rnd.uniform(0.55, 0.9)))
+        fac.append('<rect x="%.0f" y="%.0f" width="%.0f" height="%.0f" fill="%s" opacity="%.2f"/>'
+                   % (x, top, w, FLOOR - top + 40, facade, rnd.uniform(0.55, 0.9)))
         x += w * rnd.uniform(0.55, 0.95)
     S.append("".join(fac))
-    S.append('<rect x="0" y="0" width="%d" height="%d" fill="#0d0a2a" opacity="0.35"/>' % (W, FLOOR))
+    S.append('<rect x="0" y="0" width="%d" height="%d" fill="%s" opacity="0.35"/>' % (W, FLOOR, lit("#0d0a2a", light, 0.8)))
 
     def glyphs(x, y, w, h, col, op):
         out, n = [], rnd.randint(2, 4)
@@ -78,19 +85,19 @@ def build(rain=True):
     # ---- FAR plane: small, dim, softened
     farsigns = "".join(sign(rnd.uniform(0, W - 40), rnd.uniform(H * 0.02, H * 0.55),
                             rnd.uniform(16, 38), rnd.uniform(110, 300), rnd.choice(NEON), 0.5) for _ in range(40))
-    S.append('<g filter="url(#far)" opacity="0.55">%s</g>' % farsigns)
+    S.append('<g filter="url(#far)" opacity="%.2f">%s</g>' % (glow(0.55, light), farsigns))
 
     # ---- MID plane: the readable middle distance
     mid = "".join(sign(rnd.uniform(-40, W - 60), rnd.uniform(H * 0.03, H * 0.52),
                        rnd.uniform(52, 105), rnd.uniform(300, 780), rnd.choice(NEON), 0.85) for _ in range(20))
-    S.append('<g filter="url(#med)" opacity="0.9">%s</g>' % mid)
+    S.append('<g filter="url(#med)" opacity="%.2f">%s</g>' % (glow(0.9, light), mid))
     S.append('<g opacity="0.95">%s</g>' % mid)
 
     # ---- NEAR plane: big enough to run off the frame
     near = "".join(sign(x, y, w, h, rnd.choice(NEON), 1.0) for x, y, w, h in (
         (rnd.uniform(-140, W - 120), rnd.uniform(-H * 0.06, H * 0.36),
          rnd.uniform(150, 300), rnd.uniform(700, 1700)) for _ in range(8)))
-    S.append('<g filter="url(#big)" opacity="%.2f">%s</g>' % (0.80 if rain else 0.55, near))
+    S.append('<g filter="url(#big)" opacity="%.2f">%s</g>' % (glow(0.80 if rain else 0.55, light), near))
     S.append('<g filter="url(#med)" opacity="0.95">%s</g>' % near)
     S.append('<g opacity="0.98">%s</g>' % near)
 
@@ -98,11 +105,11 @@ def build(rain=True):
     fg = "".join(sign(x, y, w, h, rnd.choice(NEON), 1.0) for x, y, w, h in (
         (rnd.choice([-260.0, W - 200.0, W * 0.5]) + rnd.uniform(-160, 160), rnd.uniform(-H * 0.25, H * 0.15),
          rnd.uniform(320, 560), rnd.uniform(1400, 2600)) for _ in range(3)))
-    S.append('<g filter="url(#bokeh)" opacity="0.55">%s</g>' % fg)
+    S.append('<g filter="url(#bokeh)" opacity="%.2f">%s</g>' % (glow(0.55, light), fg))
 
     # ---- the street
     S.append('<rect x="0" y="%d" width="%d" height="%d" fill="url(#floor)"/>' % (FLOOR, W, H - FLOOR))
-    S.append('<rect x="0" y="%d" width="%d" height="60" fill="%s" opacity="0.35" filter="url(#softedge)"/>' % (FLOOR - 30, W, VIOLET))
+    S.append('<rect x="0" y="%d" width="%d" height="60" fill="%s" opacity="%.2f" filter="url(#softedge)"/>' % (FLOOR - 30, W, VIOLET, glow(0.35, light)))
     refl = ['<rect x="%.0f" y="%d" width="%.0f" height="%.0f" fill="%s" opacity="%.2f"/>'
             % (rnd.uniform(0, W), FLOOR, rnd.uniform(40, 220), rnd.uniform(180, 560),
                rnd.choice(NEON), rnd.uniform(0.14, 0.45) * (1.0 if rain else 0.42)) for _ in range(60)]
@@ -140,6 +147,7 @@ def build(rain=True):
             S.append('<circle cx="%.0f" cy="%.0f" r="%.1f" fill="%s" opacity="%.2f"/>'
                      % (rnd.uniform(0, W), rnd.uniform(0, H), rnd.uniform(1.2, 4.0), rnd.choice(NEON), rnd.uniform(0.10, 0.48)))
 
-    S.append(vignette(strength=0.78, inner=0.24))
+    S.append(ambient(light))
+    S.append(vignette(strength=vig(0.78, light), inner=0.24))
     S.append('</svg>')
     return "".join(S)

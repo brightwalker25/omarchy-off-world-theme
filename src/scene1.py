@@ -3,35 +3,37 @@ import random
 from palette import *
 
 NAME = "spinner-descent"
+LIGHT = "night"
+OUTDOOR = True
 HORIZON = int(H * 0.735)
 GLOWLINE = int(H * 0.60)
 HAZE = "#b04a80"
 NEON = [CYAN, MAGENTA, AMBER, GOLD, MINT, ROSE, BLUE, VIOLET]
 
 
-def build(rain=True):
+def build(rain=True, light=LIGHT):
     rnd = random.Random(2019)
     S = [svg_open(), '<defs>']
 
-    S.append(
-      '<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">'
-      '<stop offset="0"    stop-color="#02030a"/>'
-      '<stop offset="0.14" stop-color="#070b22"/>'
-      '<stop offset="0.32" stop-color="#141a4a"/>'
-      '<stop offset="0.47" stop-color="#33206b"/>'
-      '<stop offset="0.60" stop-color="#6b2472"/>'
-      '<stop offset="0.72" stop-color="#a83a6b"/>'
-      '<stop offset="0.80" stop-color="#4a1c52"/>'
-      '<stop offset="1"    stop-color="#0a0a1e"/>'
-      '</linearGradient>')
+    # The upper sky takes the full grade; the band just above the horizon takes
+    # less, so the city's own glow still reads as the brightest thing in it.
+    sky_stops = lit_stops((("0", "#02030a"), ("0.14", "#070b22"), ("0.32", "#141a4a"),
+                           ("0.47", "#33206b")), light)
+    sky_stops += lit_stops((("0.60", "#6b2472"), ("0.72", "#a83a6b"),
+                            ("0.80", "#4a1c52")), light, k=0.55)
+    sky_stops += lit_stops((("1", "#0a0a1e"),), light)
+    S.append('<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">%s</linearGradient>'
+             % "".join('<stop offset="%s" stop-color="%s"/>' % st for st in sky_stops))
+    haze = lit(HAZE, light, k=0.55)
     for n, c in (("gm", MAGENTA), ("gc", CYAN), ("ga", AMBER), ("gv", VIOLET), ("gr", ROSE)):
         S.append('<radialGradient id="%s"><stop offset="0" stop-color="%s" stop-opacity="0.95"/>'
                  '<stop offset="0.38" stop-color="%s" stop-opacity="0.34"/>'
                  '<stop offset="1" stop-color="%s" stop-opacity="0"/></radialGradient>' % (n, c, c, c))
     S.append('<linearGradient id="fog" x1="0" y1="0" x2="0" y2="1">'
-             '<stop offset="0" stop-color="#8e3a86" stop-opacity="0"/>'
-             '<stop offset="0.55" stop-color="#8e3a86" stop-opacity="0.33"/>'
-             '<stop offset="1" stop-color="#bd5684" stop-opacity="0.88"/></linearGradient>')
+             '<stop offset="0" stop-color="%s" stop-opacity="0"/>'
+             '<stop offset="0.55" stop-color="%s" stop-opacity="0.33"/>'
+             '<stop offset="1" stop-color="%s" stop-opacity="0.88"/></linearGradient>'
+             % (lit("#8e3a86", light, k=0.55), lit("#8e3a86", light, k=0.55), lit("#bd5684", light, k=0.55)))
     S.append('<linearGradient id="beam" x1="0" y1="0" x2="0" y2="1">'
              '<stop offset="0" stop-color="#e6f7ff" stop-opacity="%.2f"/>'
              '<stop offset="0.55" stop-color="#7fd4ff" stop-opacity="%.2f"/>'
@@ -39,17 +41,23 @@ def build(rain=True):
              % (0.30 if rain else 0.17, 0.09 if rain else 0.05))
     # wet asphalt when it rains, dry and much darker when it does not
     if rain:
+        gs = lit_stops((("0", "#a83a6b"), ("0.16", "#2a1240"), ("0.6", "#0a0c22"),
+                        ("1", "#04060f")), light, k=0.7)
         S.append('<linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">'
-                 '<stop offset="0" stop-color="#a83a6b" stop-opacity="0.34"/>'
-                 '<stop offset="0.16" stop-color="#2a1240" stop-opacity="0.92"/>'
-                 '<stop offset="0.6" stop-color="#0a0c22"/>'
-                 '<stop offset="1" stop-color="#04060f"/></linearGradient>')
+                 '<stop offset="0" stop-color="%s" stop-opacity="0.34"/>'
+                 '<stop offset="0.16" stop-color="%s" stop-opacity="0.92"/>'
+                 '<stop offset="0.6" stop-color="%s"/>'
+                 '<stop offset="1" stop-color="%s"/></linearGradient>'
+                 % tuple(c for _, c in gs))
     else:
+        gs = lit_stops((("0", "#6b2452"), ("0.14", "#160c26"), ("0.5", "#080a1a"),
+                        ("1", "#03050d")), light, k=0.7)
         S.append('<linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">'
-                 '<stop offset="0" stop-color="#6b2452" stop-opacity="0.22"/>'
-                 '<stop offset="0.14" stop-color="#160c26" stop-opacity="0.96"/>'
-                 '<stop offset="0.5" stop-color="#080a1a"/>'
-                 '<stop offset="1" stop-color="#03050d"/></linearGradient>')
+                 '<stop offset="0" stop-color="%s" stop-opacity="0.22"/>'
+                 '<stop offset="0.14" stop-color="%s" stop-opacity="0.96"/>'
+                 '<stop offset="0.5" stop-color="%s"/>'
+                 '<stop offset="1" stop-color="%s"/></linearGradient>'
+                 % tuple(c for _, c in gs))
     S.append('<filter id="bigblur" x="-45%" y="-45%" width="190%" height="190%"><feGaussianBlur stdDeviation="110"/></filter>')
     S.append('<filter id="medblur" x="-45%" y="-45%" width="190%" height="190%"><feGaussianBlur stdDeviation="30"/></filter>')
     S.append('<filter id="lowblur" x="-45%" y="-45%" width="190%" height="190%"><feGaussianBlur stdDeviation="8"/></filter>')
@@ -62,7 +70,7 @@ def build(rain=True):
 
     # a clear night lets the starfield through
     if not rain:
-        for _ in range(420):
+        for _ in range(stars(420, light)):
             y = rnd.uniform(0, H * 0.46)
             S.append('<circle cx="%.0f" cy="%.0f" r="%.1f" fill="#dfeaff" opacity="%.2f"/>'
                      % (rnd.uniform(0, W), y, rnd.uniform(0.8, 2.9),
@@ -75,12 +83,12 @@ def build(rain=True):
             (0.92 * W, GLOWLINE + 150, 1050, 600, "gv", 0.60),
             (0.05 * W, GLOWLINE + 200, 800,  480, "gr", 0.50)):
         S.append('<ellipse cx="%.0f" cy="%.0f" rx="%.0f" ry="%.0f" fill="url(#%s)" opacity="%.2f"/>'
-                 % (cx, cy, rx, ry, g, op * (1.0 if rain else 0.82)))
+                 % (cx, cy, rx, ry, g, glow(op * (1.0 if rain else 0.82), light)))
 
     # ---- the off-world advertisement hanging in the smog
     ax, ay, aw, ah = int(0.055 * W), int(0.075 * H), int(0.30 * W), int(0.26 * H)
     S.append('<rect x="%d" y="%d" width="%d" height="%d" rx="26" fill="%s" opacity="%.2f" filter="url(#bigblur)"/>'
-             % (ax, ay, aw, ah, MAGENTA, 0.60 if rain else 0.42))
+             % (ax, ay, aw, ah, MAGENTA, glow(0.60 if rain else 0.42, light)))
     S.append('<rect x="%d" y="%d" width="%d" height="%d" rx="14" fill="#1a0a30" opacity="0.88"/>' % (ax, ay, aw, ah))
     # broadcast content: a haloed disc over a horizon bar - an advert, not a UI card
     cx, cy = ax + aw * 0.5, ay + ah * 0.44
@@ -143,10 +151,10 @@ def build(rain=True):
 
     fogscale = 1.0 if rain else 0.62
     for base, hmin, hmax, wmin, wmax, gmin, gmax, fill, op, win, wsz, sc, fogop in [
-        (HORIZON - 120, 180,  620,  50, 140, -20,  30, mix(DEEP, HAZE, 0.62), 0.90, 0.00,  5, 0.00, 0.55),
-        (HORIZON - 60,  280,  900,  65, 175, -16,  44, mix(DEEP, HAZE, 0.42), 0.95, 0.03,  6, 0.06, 0.40),
-        (HORIZON,       380, 1130,  90, 235, -12,  66, mix(DEEP, HAZE, 0.24), 1.00, 0.07,  8, 0.18, 0.26),
-        (HORIZON + 70,  520, 1380, 125, 320,  14, 130, "#07091a",             1.00, 0.10, 11, 0.34, 0.00),
+        (HORIZON - 120, 180,  620,  50, 140, -20,  30, lit(mix(DEEP, HAZE, 0.62), light, 0.9), 0.90, 0.00,  5, 0.00, 0.55),
+        (HORIZON - 60,  280,  900,  65, 175, -16,  44, lit(mix(DEEP, HAZE, 0.42), light, 0.7), 0.95, 0.03,  6, 0.06, 0.40),
+        (HORIZON,       380, 1130,  90, 235, -12,  66, lit(mix(DEEP, HAZE, 0.24), light, 0.5), 1.00, 0.07,  8, 0.18, 0.26),
+        (HORIZON + 70,  520, 1380, 125, 320,  14, 130, lit("#07091a", light, 0.3),             1.00, 0.10, 11, 0.34, 0.00),
     ]:
         body, wins = skyline(base, hmin, hmax, wmin, wmax, gmin, gmax, fill, op, win, wsz, sc, sc > 0)
         S.append(body)
@@ -159,7 +167,7 @@ def build(rain=True):
 
     sign_svg = "".join('<rect x="%d" y="%d" width="%d" height="%d" rx="%d" fill="%s"/>'
                        % (sx, sy, sw, sh, min(sw, sh) // 3, c) for sx, sy, sw, sh, c in signs)
-    S.append('<g filter="url(#medblur)" opacity="%.2f">%s</g>' % (0.9 if rain else 0.62, sign_svg))
+    S.append('<g filter="url(#medblur)" opacity="%.2f">%s</g>' % (glow(0.9 if rain else 0.62, light), sign_svg))
     S.append('<g opacity="0.96">%s</g>' % sign_svg)
 
     for _ in range(18):
@@ -172,7 +180,7 @@ def build(rain=True):
     # ---- ground
     S.append('<rect x="0" y="%d" width="%d" height="%d" fill="url(#ground)"/>' % (HORIZON + 60, W, H - HORIZON - 60))
     S.append('<rect x="0" y="%d" width="%d" height="120" fill="%s" opacity="%.2f" filter="url(#softband)"/>'
-             % (HORIZON + 10, W, HAZE, 0.30 if rain else 0.16))
+             % (HORIZON + 10, W, haze, glow(0.30 if rain else 0.16, light)))
     if rain:
         refl = ['<rect x="%d" y="%d" width="%d" height="%d" fill="%s" opacity="%.2f"/>'
                 % (sx + rnd.randint(-50, 50), HORIZON + 70, max(sw, 30), rnd.randint(340, 1000), c, rnd.uniform(0.12, 0.34))
@@ -202,12 +210,13 @@ def build(rain=True):
         for _ in range(9):
             S.append('<ellipse cx="%.0f" cy="%.0f" rx="%.0f" ry="%.0f" fill="%s" opacity="%.2f" filter="url(#bigblur)"/>'
                      % (rnd.uniform(0, W), rnd.uniform(H * 0.30, H * 0.80), rnd.uniform(500, 1200),
-                        rnd.uniform(90, 220), rnd.choice([HAZE, VIOLET, "#3a2a6b"]), rnd.uniform(0.06, 0.16)))
+                        rnd.uniform(90, 220), lit(rnd.choice([HAZE, VIOLET, "#3a2a6b"]), light, 0.6), rnd.uniform(0.06, 0.16)))
         for _ in range(260):
             S.append('<circle cx="%.0f" cy="%.0f" r="%.1f" fill="%s" opacity="%.2f"/>'
                      % (rnd.uniform(0, W), rnd.uniform(H * 0.25, H), rnd.uniform(1.2, 4.2),
                         rnd.choice([GOLD, AMBER, "#ffe6c0"]), rnd.uniform(0.10, 0.5)))
 
-    S.append(vignette(strength=0.70, inner=0.30))
+    S.append(ambient(light))
+    S.append(vignette(strength=vig(0.70, light), inner=0.30))
     S.append('</svg>')
     return "".join(S)

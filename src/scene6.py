@@ -4,16 +4,21 @@ from palette import *
 import origami
 
 NAME = "hologram"
+LIGHT = "dusk"
+OUTDOOR = True
 
 
-def build(rain=True):
+def build(rain=True, light=LIGHT):
     rnd = random.Random(2022)
     HZ = int(H * 0.80)
     S = [svg_open(), '<defs>']
-    S.append('<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">'
-             '<stop offset="0" stop-color="#03040e"/><stop offset="0.30" stop-color="#0a0c2a"/>'
-             '<stop offset="0.56" stop-color="#1e1046" stop-opacity="1"/>'
-             '<stop offset="0.78" stop-color="#4a1550"/><stop offset="1" stop-color="#0c0a20"/></linearGradient>')
+    # The last of the light sits in the 0.56-0.78 band; it keeps most of its
+    # heat so dusk still reads as a sunset rather than as an early night.
+    sky_stops = (lit_stops((("0", "#03040e"), ("0.30", "#0a0c2a")), light)
+                 + lit_stops((("0.56", "#1e1046"), ("0.78", "#4a1550")), light, k=0.4)
+                 + lit_stops((("1", "#0c0a20"),), light))
+    S.append('<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">%s</linearGradient>'
+             % "".join('<stop offset="%s" stop-color="%s"/>' % st for st in sky_stops))
     S.append('<linearGradient id="holo" x1="0" y1="0" x2="0" y2="1">'
              '<stop offset="0" stop-color="%s" stop-opacity="0.05"/>'
              '<stop offset="0.18" stop-color="%s" stop-opacity="0.55"/>'
@@ -23,9 +28,11 @@ def build(rain=True):
     S.append('<linearGradient id="shaft" x1="0" y1="0" x2="0" y2="1">'
              '<stop offset="0" stop-color="%s" stop-opacity="0.42"/>'
              '<stop offset="1" stop-color="%s" stop-opacity="0"/></linearGradient>' % (MAGENTA, MAGENTA))
+    gs = lit_stops((("0", "#3a1246"), ("0.4", "#0c0a22"), ("1", "#03040e")), light, k=0.75)
     S.append('<linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">'
-             '<stop offset="0" stop-color="#3a1246" stop-opacity="0.85"/>'
-             '<stop offset="0.4" stop-color="#0c0a22"/><stop offset="1" stop-color="#03040e"/></linearGradient>')
+             '<stop offset="0" stop-color="%s" stop-opacity="0.85"/>'
+             '<stop offset="0.4" stop-color="%s"/><stop offset="1" stop-color="%s"/></linearGradient>'
+             % tuple(c for _, c in gs))
     S.append('<radialGradient id="bloom"><stop offset="0" stop-color="%s" stop-opacity="0.55"/>'
              '<stop offset="0.5" stop-color="%s" stop-opacity="0.16"/>'
              '<stop offset="1" stop-color="%s" stop-opacity="0"/></radialGradient>' % (MAGENTA, MAGENTA, MAGENTA))
@@ -38,23 +45,23 @@ def build(rain=True):
     S.append('<rect width="%d" height="%d" fill="url(#sky)"/>' % (W, H))
 
     if not rain:
-        for _ in range(380):
+        for _ in range(stars(380, light)):
             y = rnd.uniform(0, H * 0.5)
             S.append('<circle cx="%.0f" cy="%.0f" r="%.1f" fill="#e0ecff" opacity="%.2f"/>'
                      % (rnd.uniform(0, W), y, rnd.uniform(0.9, 2.8), rnd.uniform(0.08, 0.7) * (1 - y / (H * 0.6))))
 
     # cyan counter-light from the left keeps the frame from going all magenta
-    S.append('<ellipse cx="%.0f" cy="%.0f" rx="%.0f" ry="%.0f" fill="%s" opacity="0.30" filter="url(#huge)"/>'
-             % (W * 0.06, H * 0.62, 900, 700, CYAN))
+    S.append('<ellipse cx="%.0f" cy="%.0f" rx="%.0f" ry="%.0f" fill="%s" opacity="%.2f" filter="url(#huge)"/>'
+             % (W * 0.06, H * 0.62, 900, 700, CYAN, glow(0.30, light)))
 
     HX = W * 0.615
     S.append('<circle cx="%.0f" cy="%.0f" r="%.0f" fill="url(#bloom)"/>' % (HX, H * 0.44, H * 0.62))
 
     # ---- far skyline, dwarfed
     for depth, (base, hmin, hmax, wmin, wmax, col, op) in enumerate((
-            (HZ - 40, 120, 520, 50, 150, "#14103a", 0.75),
-            (HZ + 10, 220, 820, 80, 220, "#0b0a24", 0.9),
-            (HZ + 90, 320, 1050, 120, 300, "#060616", 1.0))):
+            (HZ - 40, 120, 520, 50, 150, lit("#14103a", light, 0.9), 0.75),
+            (HZ + 10, 220, 820, 80, 220, lit("#0b0a24", light, 0.6), 0.9),
+            (HZ + 90, 320, 1050, 120, 300, lit("#060616", light, 0.3), 1.0))):
         x = -250; body = []
         while x < W + 250:
             w = rnd.uniform(wmin, wmax); h = rnd.uniform(hmin, hmax)
@@ -117,7 +124,7 @@ def build(rain=True):
 
     # ---- ground
     S.append('<rect x="0" y="%d" width="%d" height="%d" fill="url(#ground)"/>' % (HZ + 60, W, H - HZ - 60))
-    S.append('<rect x="0" y="%d" width="%d" height="140" fill="%s" opacity="0.30" filter="url(#huge)"/>' % (HZ, W, MAGENTA))
+    S.append('<rect x="0" y="%d" width="%d" height="140" fill="%s" opacity="%.2f" filter="url(#huge)"/>' % (HZ, W, MAGENTA, glow(0.30, light)))
     S.append('<g filter="url(#smear)" opacity="%.2f">'
              '<rect x="%.0f" y="%d" width="%.0f" height="%d" fill="%s"/></g>'
              % (0.75 if rain else 0.35, HX - uh * 0.22, HZ + 60, uh * 0.44, int(H * 0.22), MAGENTA))
@@ -146,6 +153,7 @@ def build(rain=True):
                      % (rnd.uniform(0, W), rnd.uniform(H * 0.15, H), rnd.uniform(1.2, 4.0),
                         rnd.choice([MAGENTA, ROSE, GOLD, "#ffd9f2"]), rnd.uniform(0.10, 0.5)))
 
-    S.append(vignette(strength=0.74, inner=0.28))
+    S.append(ambient(light))
+    S.append(vignette(strength=vig(0.74, light), inner=0.28))
     S.append('</svg>')
     return "".join(S)

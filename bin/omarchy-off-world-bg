@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Pick the Off-World wallpaper for the time of day, and decide whether it rains.
+"""Pick the Off-World wallpaper, in one of three modes.
 
-Time of day chooses the scene. Rain is a weighted coin held steady for a few
-hours at a stretch, so the weather has a mood instead of flickering every time
-the timer runs - you do not know what you will come back to. Set RAIN=live in
-the config to drive it from real precipitation instead.
+  cycle    the clock picks the phase, and the phase rotates through its scenes
+  weather  the real conditions pick the scene and the plate
+  manual   nothing moves unless you move it
 
-Sunrise and sunset are computed locally from your coordinates, so the default
-mode makes no network requests at all.
+A pick you make by hand - the key binding, `omarchy theme bg next`, or the
+background switcher - is held until the light changes, then the automatic modes
+take over again. `--auto` gives the frame back at once.
+
+Sunrise and sunset are computed locally from your coordinates, so cycle mode
+makes no network requests at all. Only weather mode does.
 """
 import hashlib
 import json
@@ -22,19 +25,68 @@ from datetime import datetime, timedelta
 THEME = "off-world"
 HOME = os.path.expanduser("~")
 STATE = os.path.join(HOME, ".local/state/omarchy/current")
+MINE = os.path.join(HOME, ".local/state/omarchy/off-world.json")
 CACHE = os.path.join(HOME, ".cache/omarchy/off-world-weather.json")
 CONF = os.path.join(HOME, ".config/omarchy/off-world.conf")
 ZONE_TAB = "/usr/share/zoneinfo/zone.tab"
 CACHE_TTL = 20 * 60
 
-# Time of day picks the scene; night rotates so it is not the same view all night.
-DAWN = "5-tyrell-approach"
-DAY = "2-off-world-colonies"
-DUSK = "6-hologram"
-NIGHT = ["1-spinner-descent", "4-neon-signage", "3-voight-kampff"]
+# Which scene belongs to which phase, and whether weather applies to it. Each
+# scene is authored and rendered for exactly one light level, which is why an
+# indoor scene has no wet plate: it is lit for that hour and nothing else.
+#
+# This table must match src/scenes.py in the theme repo.
+PHASES = ("dawn", "day", "dusk", "night")
+SCENES = [
+    # name,                 phase,   outdoor
+    ("1-spinner-descent",   "night", True),
+    ("2-off-world-colonies", "day",  True),
+    ("3-voight-kampff",     "day",   False),
+    ("4-neon-signage",      "night", True),
+    ("5-tyrell-approach",   "dawn",  True),
+    ("6-hologram",          "dusk",  True),
+    ("7-sea-wall",          "dusk",  True),
+    ("8-bradbury-atrium",   "day",   False),
+    ("9-vk-machine",        "night", False),
+    ("10-tyrell-office",    "dawn",  False),
+    ("11-spinner-ascent",   "dawn",  True),
+    ("12-blaster",          "dusk",  False),
+]
+PHASE_OF = {n: p for n, p, _ in SCENES}
+OUTDOOR = {n: o for n, _, o in SCENES}
+IN_PHASE = {p: [n for n, q, _ in SCENES if q == p] for p in PHASES}
 
 # WMO codes that mean water is falling out of the sky.
 WET_CODES = set(range(51, 68)) | set(range(71, 78)) | set(range(80, 87)) | set(range(95, 100))
+
+# Weather mode: each condition names the scenes that suit it, best first. The
+# clock only breaks ties - a candidate whose phase matches the hour wins, so a
+# clear night gets a night scene rather than the desert at noon.
+# The bands are contiguous rather than a list of the codes actually assigned in
+# WMO 4677, so that every code counted as wet above lands on a wet-looking scene
+# even if the API starts reporting one of the gaps.
+BY_CONDITION = [
+    (lambda c: 95 <= c <= 99,
+     "thunderstorm", ["1-spinner-descent", "7-sea-wall", "11-spinner-ascent"]),
+    (lambda c: 63 <= c <= 67 or 81 <= c <= 84,
+     "heavy rain", ["1-spinner-descent", "7-sea-wall", "2-off-world-colonies"]),
+    (lambda c: c in (61, 62, 80),
+     "rain", ["7-sea-wall", "4-neon-signage", "11-spinner-ascent"]),
+    (lambda c: 51 <= c <= 60,
+     "drizzle", ["4-neon-signage", "6-hologram", "5-tyrell-approach"]),
+    (lambda c: 71 <= c <= 77 or 85 <= c <= 86,
+     "snow", ["11-spinner-ascent", "5-tyrell-approach", "6-hologram"]),
+    (lambda c: c in (45, 48),
+     "fog", ["6-hologram", "8-bradbury-atrium", "9-vk-machine"]),
+    (lambda c: c == 3,
+     "overcast", ["8-bradbury-atrium", "12-blaster", "3-voight-kampff"]),
+    (lambda c: c == 2,
+     "partly cloudy", ["5-tyrell-approach", "6-hologram", "9-vk-machine"]),
+    (lambda c: c == 1,
+     "mainly clear", ["11-spinner-ascent", "2-off-world-colonies", "1-spinner-descent"]),
+    (lambda c: c == 0,
+     "clear", ["2-off-world-colonies", "5-tyrell-approach", "1-spinner-descent"]),
+]
 
 
 def log(*a):
@@ -42,9 +94,11 @@ def log(*a):
         print("[off-world]", *a, file=sys.stderr)
 
 
+# ---------------------------------------------------------------- config ----
+
 def read_conf():
-    conf = {"LAT": "", "LON": "", "RAIN": "random", "RAIN_CHANCE": "0.5",
-            "RAIN_SPELL_HOURS": "3", "WEATHER": ""}
+    conf = {"MODE": "cycle", "LAT": "", "LON": "", "RAIN": "random",
+            "RAIN_CHANCE": "0.5", "RAIN_SPELL_HOURS": "3", "WEATHER": ""}
     try:
         with open(CONF) as fh:
             for line in fh:
@@ -58,8 +112,61 @@ def read_conf():
     return conf
 
 
+def write_conf_key(key, value):
+    """Rewrite one key in place, keeping every comment the file already has."""
+    try:
+        with open(CONF) as fh:
+            lines = fh.readlines()
+    except OSError:
+        lines = []
+    out, done = [], False
+    for line in lines:
+        if line.strip() and not line.lstrip().startswith("#") and "=" in line:
+            k = line.split("=", 1)[0].strip().upper()
+            if k == key:
+                if done:
+                    continue
+                out.append("%s=%s\n" % (key, value))
+                done = True
+                continue
+        out.append(line)
+    if not done:
+        out.append("%s=%s\n" % (key, value))
+    os.makedirs(os.path.dirname(CONF), exist_ok=True)
+    tmp = CONF + ".tmp"
+    with open(tmp, "w") as fh:
+        fh.writelines(out)
+    os.replace(tmp, CONF)
+
+
+def mode_of(conf):
+    m = (conf.get("MODE") or "cycle").strip().lower()
+    return m if m in ("cycle", "weather", "manual") else "cycle"
+
+
+# ----------------------------------------------------------------- state ----
+
+def read_state():
+    try:
+        with open(MINE) as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_state(data):
+    os.makedirs(os.path.dirname(MINE), exist_ok=True)
+    tmp = MINE + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(data, fh)
+    os.replace(tmp, MINE)
+
+
+# -------------------------------------------------------------- location ----
+
 def dms(token):
-    """ISO 6709 ±DDMM[SS] / ±DDDMM[SS] as used in zone.tab -> decimal degrees."""
+    """ISO 6709 +-DDMM[SS] / +-DDDMM[SS] as used in zone.tab -> decimal degrees."""
     sign = -1 if token[0] == "-" else 1
     body = token[1:]
     if len(body) in (4, 6):          # latitude: DDMM or DDMMSS
@@ -128,6 +235,29 @@ def sun_times(lat, lon, date, offset_hours):
     return to_local(j_transit - w / 360.0), to_local(j_transit + w / 360.0)
 
 
+def phase_of(now, sun):
+    """dawn / day / dusk / night, from sunrise and sunset when we have them."""
+    sunrise, sunset = sun if sun else (None, None)
+    if sunrise is None or sunset is None:
+        h = now.hour
+        if 5 <= h < 8:
+            return "dawn"
+        if 8 <= h < 17:
+            return "day"
+        if 17 <= h < 20:
+            return "dusk"
+        return "night"
+    if sunrise - timedelta(minutes=60) <= now < sunrise + timedelta(minutes=90):
+        return "dawn"
+    if sunrise + timedelta(minutes=90) <= now < sunset - timedelta(minutes=90):
+        return "day"
+    if sunset - timedelta(minutes=90) <= now < sunset + timedelta(minutes=60):
+        return "dusk"
+    return "night"
+
+
+# --------------------------------------------------------------- weather ----
+
 def rain_spell(now, chance, spell_hours):
     """A stable coin flip: the same answer for every run inside one spell."""
     block = (now.year, now.timetuple().tm_yday, int(now.hour // max(1, spell_hours)))
@@ -175,6 +305,13 @@ def is_wet(data):
     return cur.get("weather_code") in WET_CODES
 
 
+def weather_code(data):
+    if not isinstance(data, dict):
+        return None
+    code = (data.get("current") or {}).get("weather_code")
+    return code if isinstance(code, int) else None
+
+
 def sun_from_api(data):
     try:
         daily = data["daily"]
@@ -185,36 +322,24 @@ def sun_from_api(data):
         return None
 
 
-def bucket(now, sun):
-    """dawn / day / dusk / night, from sunrise and sunset when we have them."""
-    sunrise, sunset = sun if sun else (None, None)
-    if sunrise is None or sunset is None:
-        h = now.hour
-        if 5 <= h < 8:
-            return "dawn"
-        if 8 <= h < 17:
-            return "day"
-        if 17 <= h < 20:
-            return "dusk"
-        return "night"
-    if sunrise - timedelta(minutes=60) <= now < sunrise + timedelta(minutes=90):
-        return "dawn"
-    if sunrise + timedelta(minutes=90) <= now < sunset - timedelta(minutes=90):
-        return "day"
-    if sunset - timedelta(minutes=90) <= now < sunset + timedelta(minutes=60):
-        return "dusk"
-    return "night"
+def scene_for_weather(code, phase):
+    """Condition names the candidates; the hour breaks the tie."""
+    for test, label, names in BY_CONDITION:
+        if test(code):
+            for n in names:
+                if PHASE_OF[n] == phase:
+                    return n, label
+            return names[0], label
+    return scene_for_phase(phase, datetime.now()), "unknown code %s" % code
 
 
-def scene_for(b, now):
-    if b == "dawn":
-        return DAWN
-    if b == "day":
-        return DAY
-    if b == "dusk":
-        return DUSK
-    slot = (now.timetuple().tm_yday * 12 + now.hour // 2) % len(NIGHT)
-    return NIGHT[slot]
+# ----------------------------------------------------------------- scenes ----
+
+def scene_for_phase(phase, now):
+    """Rotate through the phase's scenes, changing every two hours."""
+    names = IN_PHASE[phase]
+    slot = (now.timetuple().tm_yday * 12 + now.hour // 2) % len(names)
+    return names[slot]
 
 
 def current_theme():
@@ -225,27 +350,81 @@ def current_theme():
         return ""
 
 
-USAGE = """omarchy-off-world-bg - pick the Off-World wallpaper for now
+def backgrounds_dir():
+    d = os.path.join(STATE, "theme", "backgrounds")
+    if os.path.isdir(d) and current_theme() == THEME:
+        return d
+    return os.path.join(HOME, ".config/omarchy/themes", THEME, "backgrounds")
 
-  (no args)        choose from the clock and the weather, and apply it
-  --status         print the choice and why, change nothing
-  --force          run even when another theme is active
-  --list           list the twelve wallpapers
+
+def path_for(bg_dir, scene, wet):
+    """An interior has one plate; outdoors have a wet one and a dry one."""
+    if OUTDOOR.get(scene, True):
+        return os.path.join(bg_dir, "%s-%s.jpg" % (scene, "rain" if wet else "clear"))
+    return os.path.join(bg_dir, "%s.jpg" % scene)
+
+
+def scene_of_path(path):
+    """('4-neon-signage', True) from .../4-neon-signage-rain.jpg."""
+    stem = os.path.basename(path)
+    if stem.endswith(".jpg"):
+        stem = stem[:-4]
+    for suffix, wet in (("-rain", True), ("-clear", False)):
+        if stem.endswith(suffix):
+            name = stem[:-len(suffix)]
+            if name in PHASE_OF:
+                return name, wet
+    if stem in PHASE_OF:
+        return stem, False
+    return None, False
+
+
+def current_background():
+    link = os.path.join(STATE, "background")
+    try:
+        return os.path.realpath(link)
+    except OSError:
+        return ""
+
+
+def apply(path):
+    subprocess.run(["omarchy-theme-bg-set", path], check=False)
+
+
+# ------------------------------------------------------------------- main ----
+
+USAGE = """omarchy-off-world-bg - pick the Off-World wallpaper
+
+  (no args)          choose for right now, and apply it
+  --status           print the choice and why, change nothing
+  --list             list the wallpapers, grouped by phase
+  --force            run even when another theme is active
+
+Stepping through them by hand (each one holds until the light changes):
+  --next             next scene in this phase
+  --prev             previous scene in this phase
+  --toggle-rain      flip the wet and dry plate of an outdoor scene
+  --auto             drop the hold and go back to automatic now
+
+Modes:
+  --mode cycle       the clock picks the phase, the phase rotates its scenes
+  --mode weather     real conditions pick the scene and the plate
+  --mode manual      nothing moves unless you move it
 
 Test overrides - these apply the wallpaper so you can actually look at it:
-  --rain           force the rain variant
-  --clear          force the clear variant
-  --at HH:MM       pretend it is that time of day
-  --scene N        force scene 1-6, ignoring the clock
-  --dry-run        combine with any override to print instead of apply
+  --rain             force the rain variant
+  --clear            force the clear variant
+  --at HH:MM         pretend it is that time of day
+  --scene N          force scene 1-12, ignoring the clock
+  --dry-run          combine with any override to print instead of apply
 
-The timer re-checks every 15 minutes, so a forced choice reverts by itself.
+The timer re-checks every 15 minutes.
 """
 
 
 def parse_args(args):
-    opt = {"status": False, "force": False, "wet": None, "at": None,
-           "scene": None, "list": False}
+    opt = {"status": False, "force": False, "wet": None, "at": None, "scene": None,
+           "list": False, "step": 0, "toggle": False, "auto": False, "mode": None}
     i = 0
     while i < len(args):
         a = args[i]
@@ -262,6 +441,17 @@ def parse_args(args):
             opt["wet"] = True
         elif a == "--clear":
             opt["wet"] = False
+        elif a == "--next":
+            opt["step"] = 1
+        elif a == "--prev":
+            opt["step"] = -1
+        elif a == "--toggle-rain":
+            opt["toggle"] = True
+        elif a == "--auto":
+            opt["auto"] = True
+        elif a == "--mode":
+            i += 1
+            opt["mode"] = args[i] if i < len(args) else None
         elif a == "--at":
             i += 1
             opt["at"] = args[i] if i < len(args) else None
@@ -276,29 +466,103 @@ def parse_args(args):
     return opt
 
 
-def all_scenes():
-    return [DAWN, DAY, DUSK] + NIGHT
+def decide(conf, now, opt):
+    """-> (scene, wet, phase, why_rain, where, sun) for the automatic modes."""
+    mode = mode_of(conf)
+    data = sun = None
+    lat = lon = None
+    loc = locate(conf)
+    where = "unknown"
+    if loc:
+        lat, lon, where = loc
 
+    rain_mode = (conf.get("RAIN") or "random").strip().lower()
+    if conf.get("WEATHER", "").strip() in ("0", "false", "no"):
+        rain_mode = "never"                    # honour the older config key
+    try:
+        chance = min(1.0, max(0.0, float(conf.get("RAIN_CHANCE", "0.5"))))
+    except ValueError:
+        chance = 0.5
+    try:
+        spell = max(1, int(float(conf.get("RAIN_SPELL_HOURS", "3"))))
+    except ValueError:
+        spell = 3
 
-def backgrounds_dir():
-    d = os.path.join(STATE, "theme", "backgrounds")
-    if os.path.isdir(d) and current_theme() == THEME:
-        return d
-    return os.path.join(HOME, ".config/omarchy/themes", THEME, "backgrounds")
+    code = None
+    if mode == "weather" or rain_mode == "live":
+        if lat is not None:
+            data = fetch_weather(lat, lon)
+            sun = sun_from_api(data)
+            code = weather_code(data)
+
+    if sun is None and lat is not None:
+        offset = datetime.now().astimezone().utcoffset()
+        sun = sun_times(lat, lon, now.date(), offset.total_seconds() / 3600.0 if offset else 0.0)
+    phase = phase_of(now, sun)
+
+    if opt["wet"] is not None:
+        wet, why = opt["wet"], "forced"
+    elif mode == "weather":
+        wet = is_wet(data)
+        why = "weather, %s" % where if data else "weather (lookup failed, assuming dry)"
+    elif rain_mode == "live":
+        wet = is_wet(data)
+        why = "live, %s" % where if data else "live (lookup failed, assuming dry)"
+    elif rain_mode == "always":
+        wet, why = True, "always"
+    elif rain_mode == "never":
+        wet, why = False, "never"
+    else:
+        wet = rain_spell(now, chance, spell)
+        why = "random %d%% in %dh spells" % (round(chance * 100), spell)
+
+    if opt["scene"]:
+        try:
+            n = int(opt["scene"])
+        except ValueError:
+            n = 0
+        match = [s for s in PHASE_OF if s.startswith("%d-" % n)]
+        if not match:
+            print("off-world: --scene wants 1-12", file=sys.stderr)
+            raise SystemExit(2)
+        scene = match[0]
+    elif mode == "weather" and code is not None:
+        scene, label = scene_for_weather(code, phase)
+        why = "%s: %s" % (why, label)
+    else:
+        scene = scene_for_phase(phase, now)
+    return scene, wet, phase, why, where, sun
 
 
 def main():
     opt = parse_args(sys.argv[1:])
     bg_dir = backgrounds_dir()
+    conf = read_conf()
+
+    if opt["mode"]:
+        m = opt["mode"].strip().lower()
+        if m not in ("cycle", "weather", "manual"):
+            print("off-world: --mode wants cycle, weather or manual", file=sys.stderr)
+            return 2
+        write_conf_key("MODE", m)
+        conf = read_conf()
+        st = read_state()
+        st.pop("hold", None)               # a mode change is a fresh start
+        write_state(st)
+        print("mode: %s" % m)
+        if m == "manual":
+            return 0
 
     if opt["list"]:
-        for name in sorted(os.listdir(bg_dir)):
-            if name.endswith(".jpg"):
-                print(name)
+        for p in PHASES:
+            print("%s:" % p)
+            for n in IN_PHASE[p]:
+                kind = "outdoor, wet + dry" if OUTDOOR[n] else "interior, one plate"
+                print("  %-22s %s" % (n, kind))
         return 0
 
-    overridden = opt["wet"] is not None or opt["at"] or opt["scene"]
-
+    overridden = (opt["wet"] is not None or opt["at"] or opt["scene"]
+                  or opt["step"] or opt["toggle"] or opt["auto"])
     if not opt["force"] and not overridden and current_theme() != THEME:
         log("theme is %r, not %r - nothing to do" % (current_theme(), THEME))
         return 0
@@ -312,85 +576,107 @@ def main():
             print("off-world: --at wants HH:MM, got %r" % opt["at"], file=sys.stderr)
             return 2
 
-    conf = read_conf()
-    mode = (conf.get("RAIN") or "random").strip().lower()
-    if conf.get("WEATHER", "").strip() in ("0", "false", "no"):
-        mode = "never"                      # honour the older config key
-    try:
-        chance = min(1.0, max(0.0, float(conf.get("RAIN_CHANCE", "0.5"))))
-    except ValueError:
-        chance = 0.5
-    try:
-        spell = max(1, int(float(conf.get("RAIN_SPELL_HOURS", "3"))))
-    except ValueError:
-        spell = 3
+    mode = mode_of(conf)
+    st = read_state()
+    scene, wet, phase, why, where, sun = decide(conf, now, opt)
 
-    data = None
-    sun = None
-    lat = lon = None
-    loc = locate(conf)
-    if loc:
-        lat, lon, where_loc = loc
-    else:
-        where_loc = "unknown"
+    # ---- stepping by hand
+    if opt["step"] or opt["toggle"]:
+        cur_scene, cur_wet = scene_of_path(current_background())
+        # Interiors have no wet plate, so their dryness is not a preference.
+        # Carry the last real wet/dry choice across them, or stepping through
+        # one silently drops you back to clear on the far side.
+        want_wet = cur_wet if (cur_scene and OUTDOOR[cur_scene]) else st.get("wet", wet)
+        if opt["toggle"]:
+            if cur_scene is None:
+                cur_scene, cur_wet = scene, wet
+            if not OUTDOOR[cur_scene]:
+                print("off-world: %s is an interior, it has only one plate" % cur_scene,
+                      file=sys.stderr)
+                return 1
+            new_scene, new_wet = cur_scene, not cur_wet
+        else:
+            # manual mode steps the whole set; the automatic modes step the phase
+            ring = [n for n, _, _ in SCENES] if mode == "manual" else IN_PHASE[phase]
+            if cur_scene in ring:
+                new_scene = ring[(ring.index(cur_scene) + opt["step"]) % len(ring)]
+            else:
+                new_scene = ring[0]
+            new_wet = want_wet if OUTDOOR[new_scene] else False
+        path = path_for(bg_dir, new_scene, new_wet)
+        if not os.path.exists(path):
+            print("off-world: no wallpaper at %s" % path, file=sys.stderr)
+            return 1
+        if opt["status"]:
+            print(os.path.basename(path))
+            return 0
+        apply(path)
+        st["last_set"] = os.path.realpath(path)
+        st["wet"] = new_wet if OUTDOOR[new_scene] else want_wet
+        st["hold"] = {"path": os.path.realpath(path), "phase": phase, "at": int(time.time())}
+        write_state(st)
+        return 0
 
-    if opt["wet"] is not None:
-        wet, why = opt["wet"], "forced"
-    elif mode == "live":
-        if lat is not None:
-            data = fetch_weather(lat, lon)
-            sun = sun_from_api(data)
-        wet = is_wet(data)
-        why = "live, %s" % where_loc if data else "live (lookup failed, assuming dry)"
-    elif mode == "always":
-        wet, why = True, "always"
-    elif mode == "never":
-        wet, why = False, "never"
-    else:
-        wet = rain_spell(now, chance, spell)
-        why = "random %d%% in %dh spells" % (round(chance * 100), spell)
+    if opt["auto"]:
+        st.pop("hold", None)
+        write_state(st)
 
-    if sun is None and lat is not None:
-        offset = datetime.now().astimezone().utcoffset()
-        sun = sun_times(lat, lon, now.date(), offset.total_seconds() / 3600.0 if offset else 0.0)
+    # ---- did something else move the wallpaper since we last set it?
+    cur = current_background()
+    hold = st.get("hold")
+    if not overridden and not opt["force"] and not opt["status"]:
+        known, _ = scene_of_path(cur)
+        if known and st.get("last_set") and cur != st["last_set"]:
+            # the switcher, `omarchy theme bg next`, or another tool. Treat it
+            # as a pick and hold it, the same as our own key binding would.
+            log("background changed elsewhere, holding", os.path.basename(cur))
+            st["last_set"] = cur
+            st["hold"] = {"path": cur, "phase": phase, "at": int(time.time())}
+            write_state(st)
+            return 0
+        if mode == "manual":
+            log("manual mode, leaving it alone")
+            return 0
+        if hold and hold.get("phase") == phase and os.path.exists(hold.get("path", "")):
+            log("held until the light changes")
+            return 0
+        if hold:
+            log("light changed, releasing the hold")
+            st.pop("hold", None)
 
-    if opt["scene"]:
-        try:
-            n = int(opt["scene"])
-        except ValueError:
-            n = 0
-        match = [s for s in all_scenes() if s.startswith("%d-" % n)]
-        if not match:
-            print("off-world: --scene wants 1-6", file=sys.stderr)
-            return 2
-        scene, b = match[0], "forced"
-    else:
-        b = bucket(now, sun)
-        scene = scene_for(b, now)
-
-    name = "%s-%s.jpg" % (scene, "rain" if wet else "clear")
-    path = os.path.join(bg_dir, name)
+    path = path_for(bg_dir, scene, wet)
     if not os.path.exists(path):
-        print("off-world: no wallpaper named %s" % name, file=sys.stderr)
+        print("off-world: no wallpaper at %s" % path, file=sys.stderr)
         return 1
 
     if opt["status"]:
         sr = "%s / %s" % (sun[0].strftime("%H:%M"), sun[1].strftime("%H:%M")) if sun else "unknown"
-        print("location : %s" % where_loc)
+        held = ""
+        if hold:
+            held = "  (holding %s until the light changes)" % os.path.basename(hold.get("path", ""))
+        print("mode     : %s" % mode)
+        print("location : %s" % where)
         print("sun      : %s" % sr)
-        print("rain     : %s  (%s)" % ("yes" if wet else "no", why))
-        print("time     : %s (%s)%s" % (b, now.strftime("%H:%M"),
+        print("phase    : %s (%s)%s" % (phase, now.strftime("%H:%M"),
                                         "  (forced)" if opt["at"] else ""))
-        print("wallpaper: %s" % os.path.basename(path))
+        print("rotation : %s" % ", ".join(IN_PHASE[phase]))
+        print("rain     : %s  (%s)" % ("yes" if wet else "no", why))
+        print("wallpaper: %s%s" % (os.path.basename(path), held))
         return 0
 
-    link = os.path.join(STATE, "background")
-    if os.path.realpath(link) == os.path.realpath(path):
-        log("already showing", name)
+    if os.path.realpath(cur) == os.path.realpath(path):
+        st["last_set"] = os.path.realpath(path)
+        st["wet"] = wet
+        write_state(st)
+        log("already showing", os.path.basename(path))
         return 0
 
-    subprocess.run(["omarchy-theme-bg-set", path], check=False)
-    log("set", name)
+    apply(path)
+    st["last_set"] = os.path.realpath(path)
+    st["wet"] = wet
+    st.pop("hold", None)          # an explicit choice supersedes a hold
+    write_state(st)
+    log("set", os.path.basename(path))
     return 0
 
 

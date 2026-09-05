@@ -3,19 +3,32 @@ import math, random
 from palette import *
 
 NAME = "voight-kampff"
+LIGHT = "day"
+OUTDOOR = False
 MONO = "JetBrainsMono Nerd Font,JetBrains Mono,Noto Sans Mono,monospace"
 
 
-def build(rain=True):
+def build(rain=True, light=LIGHT):
     rnd = random.Random(6)
     CX, CY = W * 0.5, H * 0.47
     R_PUPIL = H * 0.115
     R_IRIS = H * 0.375
     S = [svg_open(), '<defs>']
 
+    # An interior, so daylight arrives as room light rather than as sky: the
+    # backdrop lifts toward a neutral grey-violet, and the slats below put the
+    # actual sun on the wall. The iris keeps its own heat and is never graded.
+    ROOM = "#7d7c96"
+    # A restrained lift. The frame is mostly instrument housing, and housing
+    # that goes pale stops reading as metal - the light has to arrive from the
+    # slats and fall off, not fill the whole box evenly.
+    bg_stops = (lit_stops((("0", "#101a3d"),), light, k=0.42, haze=ROOM)
+                + lit_stops((("0.5", "#080d22"),), light, k=0.30, haze=ROOM)
+                + lit_stops((("1", "#02030a"),), light, k=0.14, haze=ROOM))
     S.append('<radialGradient id="bg" cx="0.5" cy="0.47" r="0.72">'
-             '<stop offset="0" stop-color="#101a3d"/><stop offset="0.5" stop-color="#080d22"/>'
-             '<stop offset="1" stop-color="#02030a"/></radialGradient>')
+             '<stop offset="0" stop-color="%s"/><stop offset="0.5" stop-color="%s"/>'
+             '<stop offset="1" stop-color="%s"/></radialGradient>'
+             % tuple(c for _, c in bg_stops))
     S.append('<radialGradient id="irisfill" cx="0.5" cy="0.5" r="0.5">'
              '<stop offset="0.28" stop-color="#ff8a3d" stop-opacity="0.95"/>'
              '<stop offset="0.52" stop-color="#c9502e" stop-opacity="0.75"/>'
@@ -34,18 +47,39 @@ def build(rain=True):
 
     S.append('<rect width="%d" height="%d" fill="url(#bg)"/>' % (W, H))
 
+    # ---- venetian slats: the office light that dates the whole scene
+    if tone(light)["lift"] > 0.2:
+        slat = []
+        pitch = H / 22.0
+        for i in range(26):
+            y = -H * 0.10 + i * pitch
+            slat.append('<rect x="%d" y="%.1f" width="%d" height="%.1f"/>' % (-W, y, W * 3, pitch * 0.42))
+        band = ('<g transform="rotate(-9 %.0f %.0f)">%s</g>' % (W * 0.5, H * 0.5, "".join(slat)))
+        # Cut the slats off toward the right so the light has a direction and a
+        # far side, which is what keeps an interior from reading as flat fog.
+        S.append('<defs><linearGradient id="slatfall" x1="0" y1="0" x2="1" y2="0.3">'
+                 '<stop offset="0" stop-color="#ffffff" stop-opacity="1"/>'
+                 '<stop offset="0.55" stop-color="#ffffff" stop-opacity="0.35"/>'
+                 '<stop offset="1" stop-color="#ffffff" stop-opacity="0"/></linearGradient>'
+                 '<mask id="slatmask"><rect width="%d" height="%d" fill="url(#slatfall)"/></mask></defs>'
+                 % (W, H))
+        S.append('<g mask="url(#slatmask)">'
+                 '<g fill="%s" opacity="0.26" filter="url(#glowbig)">%s</g>'
+                 '<g fill="%s" opacity="0.17">%s</g></g>'
+                 % (GOLD, band, mix(GOLD, "#ffffff", 0.5), band))
+
     # ---- instrument grid behind everything
     grid = []
     for gx in range(0, W + 1, 120):
         grid.append('<line x1="%d" y1="0" x2="%d" y2="%d"/>' % (gx, gx, H))
     for gy in range(0, H + 1, 120):
         grid.append('<line x1="0" y1="%d" x2="%d" y2="%d"/>' % (gy, W, gy))
-    S.append('<g stroke="%s" stroke-width="1" opacity="0.055">%s</g>' % (CYAN, "".join(grid)))
+    S.append('<g stroke="%s" stroke-width="1" opacity="%.3f">%s</g>' % (CYAN, 0.055 + tone(light)["lift"] * 0.06, "".join(grid)))
 
-    S.append('<circle cx="%.0f" cy="%.0f" r="%.0f" fill="url(#corona)" opacity="0.9"/>' % (CX, CY, R_IRIS * 2.4))
+    S.append('<circle cx="%.0f" cy="%.0f" r="%.0f" fill="url(#corona)" opacity="%.2f"/>' % (CX, CY, R_IRIS * 2.4, glow(0.9, light)))
     for gx, gy, gr, gc, go in ((W * 0.10, H * 0.14, 900, GOLD, 0.17), (W * 0.90, H * 0.86, 950, MAGENTA, 0.20),
                                (W * 0.94, H * 0.16, 700, ROSE, 0.11), (W * 0.06, H * 0.88, 800, CYAN, 0.12)):
-        S.append('<circle cx="%.0f" cy="%.0f" r="%.0f" fill="%s" opacity="%.2f" filter="url(#glowbig)"/>' % (gx, gy, gr, gc, go))
+        S.append('<circle cx="%.0f" cy="%.0f" r="%.0f" fill="%s" opacity="%.2f" filter="url(#glowbig)"/>' % (gx, gy, gr, gc, glow(go, light)))
 
     # ---- iris fibres: the whole image lives or dies on these
     fib_glow, fib = [], []
@@ -151,7 +185,7 @@ def build(rain=True):
 
     # ---- scanlines
     sl = "".join('<rect x="0" y="%d" width="%d" height="2" />' % (y, W) for y in range(0, H, 7))
-    S.append('<g fill="#000000" opacity="0.20">%s</g>' % sl)
+    S.append('<g fill="#000000" opacity="%.2f">%s</g>' % (0.20 + tone(light)["lift"] * 0.14, sl))
 
     # ---- weather on the lens
     if rain:
@@ -171,6 +205,7 @@ def build(rain=True):
                      % (rnd.uniform(0, W), rnd.uniform(0, H), rnd.uniform(1.0, 3.4),
                         rnd.choice([CYAN, "#dff6ff", GOLD]), rnd.uniform(0.08, 0.45)))
 
-    S.append(vignette(strength=0.80, inner=0.24))
+    S.append(ambient(light, haze="#c8b394", op=0.055))
+    S.append(vignette(strength=vig(0.80, light), inner=0.24))
     S.append('</svg>')
     return "".join(S)

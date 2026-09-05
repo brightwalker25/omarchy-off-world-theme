@@ -3,10 +3,12 @@ import random
 from palette import *
 
 NAME = "off-world-colonies"
+LIGHT = "day"
+OUTDOOR = True
 GROUND = int(H * 0.795)
 
 
-def build(rain=True):
+def build(rain=True, light=LIGHT):
     rnd = random.Random(2049)
     # rain cools and mutes the whole grade; clear is full furnace amber
     if rain:
@@ -19,6 +21,16 @@ def build(rain=True):
                      ("0.62", "#e0691a"), ("0.78", "#ffab3d"), ("1", "#ffd07a"))
         sun, sun2, dust = "#fff0c0", "#ff9b2e", "#e8a45c"
         ground_top, ground_bot = "#7a3a18", "#1a0b06"
+
+    # This scene is already the furnace of the set, so it grades against its own
+    # warm haze rather than the cold default. The sky barely moves - lifting it
+    # toward blue would put out the sun - and almost all of the daylight goes
+    # into the shadows on the ground, which is where a lit frame differs from a
+    # dark one anyway.
+    WARM = "#f0c288"
+    sky_stops = lit_stops(sky_stops, light, k=0.22, haze=WARM)
+    ground_top = lit(ground_top, light, k=0.85, haze=dust)
+    ground_bot = lit(ground_bot, light, k=0.70, haze=dust)
 
     S = [svg_open(), '<defs>']
     S.append('<linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">%s</linearGradient>'
@@ -60,7 +72,7 @@ def build(rain=True):
     # ---- silhouettes, far to near, each dimmed by the dust between it and us
     def band(depth, base_y, n, wmin, wmax, hmin, hmax, kind):
         """depth 0 = furthest. Colour lerps from dust toward near-black."""
-        col = mix(dust, "#160a06", 0.30 + depth * 0.24)
+        col = lit(mix(dust, "#160a06", 0.30 + depth * 0.24), light, k=0.65 - depth * 0.15, haze=dust)
         op = 0.52 + depth * 0.15
         out = []
         for _ in range(n):
@@ -97,7 +109,7 @@ def build(rain=True):
         zig.append('<polygon points="%.0f,%.0f %.0f,%.0f %.0f,%.0f %.0f,%.0f"/>'
                    % (zx - hw0, y0, zx + hw0, y0, zx + hw1, zt + (zb - zt) * t1, zx - hw1, zt + (zb - zt) * t1))
         zig.append('<rect x="%.0f" y="%.0f" width="%.0f" height="14"/>' % (zx - hw1 - 12, zt + (zb - zt) * t1 - 8, hw1 * 2 + 24))
-    S.append('<g fill="#1a0b07" opacity="0.95">%s</g>' % "".join(zig))
+    S.append('<g fill="%s" opacity="0.95">%s</g>' % (lit("#1a0b07", light, 0.5, haze=dust), "".join(zig)))
     # rim light where the sun grazes the left face
     S.append('<polygon points="%.0f,%.0f %.0f,%.0f %.0f,%.0f" fill="%s" opacity="%.2f" filter="url(#lowblur)"/>'
              % (zx - zw * 0.08, zt, zx - zw * 0.5, zb, zx - zw * 0.42, zb, sun, 0.30 if rain else 0.5))
@@ -182,6 +194,7 @@ def build(rain=True):
                      % (rnd.uniform(0, W), rnd.uniform(H * 0.25, H * 0.9), rnd.uniform(600, 1600),
                         rnd.uniform(80, 240), dust, rnd.uniform(0.08, 0.22)))
 
-    S.append(vignette(strength=0.66, inner=0.30, color="#14070a"))
+    S.append(ambient(light, haze="#e6c49b"))
+    S.append(vignette(strength=vig(0.66, light), inner=0.30, color=lit("#14070a", light, 0.5, haze=dust)))
     S.append('</svg>')
     return "".join(S)

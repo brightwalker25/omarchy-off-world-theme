@@ -1,12 +1,13 @@
 # Off-World
 
 A neon-noir theme for [Omarchy](https://omarchy.org/), with wallpapers that
-follow the time of day and rain that actually falls.
+follow the time of day, the real weather, or nothing but your own hand — and
+rain that actually falls.
 
 ![Off-World](preview.png)
 
-**[See the full gallery →](GALLERY.md)** — all twelve wallpapers wet and dry, the
-palette, and the icon set.
+**[See the full gallery →](GALLERY.md)** — all nineteen wallpapers, the palette,
+and the icon set.
 
 Every image is generated. The wallpapers are drawn as SVG by the scripts in
 `src/`, rendered with `rsvg-convert`, then given a bloom and grain pass. Nothing
@@ -21,7 +22,9 @@ cd ~/.config/omarchy/themes/off-world && ./install.sh
 
 The first command installs and applies the palette and wallpapers. The second
 adds the parts that live outside a theme directory: the icon set, the wallpaper
-switcher, its timer, and the rain.
+switcher, its timer, and the rain. It does not touch your key bindings — it
+prints the four commands worth binding and leaves
+[`~/.config/hypr/bindings.lua`](#changing-it-yourself) to you.
 
 Rain comes two ways — pick one at install time, or switch later:
 
@@ -38,75 +41,119 @@ amber. Window borders run a magenta-to-cyan gradient, which the Omarchy shell
 reuses for popups, notifications, the launcher and the lock screen. Alacritty,
 foot, kitty, ghostty, btop, neovim, VSCode and Chromium all follow.
 
-**Twelve wallpapers**, six scenes in a wet and a dry plate, rendered at
-3840x2400. They are all in the [gallery](GALLERY.md):
+**Nineteen wallpapers**: twelve scenes, three for each phase of the day,
+rendered at 3840x2400. Seven are outdoors and have a wet plate and a dry one;
+five are interiors and have a single plate, because rain you can only see
+through a window is not worth a second image. They are all in the
+[gallery](GALLERY.md):
 
-| Scene | |
-|---|---|
-| Spinner Descent | rain-drowned megacity under a colossal advertising screen |
-| Off-World Colonies | the sun over the dust, a ziggurat, a figure for scale |
-| Voight-Kampff | the empathy test seen from inside the machine |
-| Neon Signage | an alley of light through wet glass |
-| Tyrell Approach | a wireframe ziggurat over a light grid |
-| Unicorn | Gaff's folded unicorn, rearing over the city |
+| Phase | Scene | |
+|---|---|---|
+| Dawn | Tyrell Approach | a wireframe ziggurat over a light grid |
+| Dawn | Tyrell's Office | the hall at first light, and the owl that watches it |
+| Dawn | Spinner Ascent | a police spinner climbing between towers into the sun |
+| Day | Off-World Colonies | the sun over the dust, a ziggurat, a figure for scale |
+| Day | Voight-Kampff | the empathy test seen from inside the machine |
+| Day | Bradbury Atrium | iron stairs under a rotting glass roof, at noon |
+| Dusk | Unicorn | Gaff's folded unicorn, rearing over the city |
+| Dusk | Sea Wall Flares | the refinery plain burning off at last light |
+| Dusk | The Blaster | the gun on the table, against a wall that is giving up |
+| Night | Spinner Descent | rain-drowned megacity under a colossal advertising screen |
+| Night | Neon Signage | an alley of light through wet glass |
+| Night | The Machine | the Voight-Kampff apparatus itself, after dark |
+
+Every scene is authored and rendered for one phase. Day scenes are lit and hazy
+rather than bright; dusk and night keep their blacks. That is done in the
+generators, in `src/palette.py`, so a day scene is genuinely daylit rather than
+a night scene turned up.
 
 **Twenty-three icons.** A GTK icon theme of neon-noir folders with a
 magenta-to-cyan edge and colour-coded glyphs, inheriting `Yaru-magenta-dark` so
 everything it does not override still resolves.
 
-## The wallpaper picks itself
+## Three modes
 
-Time of day chooses the scene:
+```bash
+omarchy-off-world-bg --mode cycle      # the default
+omarchy-off-world-bg --mode weather
+omarchy-off-world-bg --mode manual
+```
 
-| Time | Scene |
+**cycle.** The clock picks the phase — dawn, day, dusk or night — and the phase
+rotates through its three scenes every couple of hours. Rain is a weighted coin
+held steady for three hours at a stretch, so the weather has a mood instead of
+flickering every time the timer runs. Makes no network requests at all.
+
+**weather.** The real conditions where you are pick the scene as well as the
+plate: a thunderstorm gets Spinner Descent, drizzle gets Neon Signage, overcast
+gets the Bradbury Atrium, clear gets Off-World Colonies. Each condition names
+three candidates and the clock only breaks the tie, so a clear night still gets
+a night scene rather than the desert at noon. This is the only mode that touches
+the network.
+
+**manual.** Nothing moves unless you move it.
+
+Sunrise and sunset are computed locally from your coordinates, so cycle mode
+needs no network call. Verified against Open-Meteo: within two minutes.
+
+## Changing it yourself
+
+| Key | |
 |---|---|
-| Dawn | Tyrell Approach |
-| Day | Off-World Colonies |
-| Dusk | Unicorn |
-| Night | rotates Spinner Descent, Neon Signage, Voight-Kampff |
+| `SUPER + CTRL + ALT + SPACE` | next scene in this phase |
+| `SUPER + CTRL + ALT + SHIFT + SPACE` | previous scene |
+| `SUPER + CTRL + ALT + N` | flip the wet and dry plate |
+| `SUPER + CTRL + ALT + A` | back to automatic, now |
 
-Sunrise and sunset are computed locally from your coordinates, so dawn and dusk
-track the real sky with no network call. Verified against Open-Meteo: within two
-minutes.
+A pick you make by hand is **held until the light changes** — dawn to day, day
+to dusk — and then the automatic modes take over again. That is long enough to
+be worth pressing and short enough that it heals on its own without you having
+to remember you pressed anything.
 
-Rain is a weighted coin held steady for three hours at a stretch, so the weather
-has a mood instead of flickering every time the timer runs. Fifty-fifty by
-default. A systemd user timer re-checks every fifteen minutes.
+This applies however you make the pick. Omarchy's own background switcher
+(`SUPER + CTRL + SPACE`) and `omarchy theme bg next` are noticed and held the
+same way; before, the timer reverted them within fifteen minutes and they looked
+broken. In manual mode the keys step through all twelve scenes rather than just
+the current phase.
 
 ```
-omarchy-off-world-bg --status          # what it picked, and why
-omarchy-off-world-bg --list            # the twelve wallpapers
+omarchy-off-world-bg --status          # mode, phase, rotation, hold, and why
+omarchy-off-world-bg --list            # every wallpaper, grouped by phase
+omarchy-off-world-bg --next            # what the key binding runs
+omarchy-off-world-bg --toggle-rain     # outdoor scenes only
+omarchy-off-world-bg --auto            # drop the hold
 omarchy-off-world-bg --rain            # force the wet plate, now
 omarchy-off-world-bg --clear           # force the dry one
 omarchy-off-world-bg --at 06:30        # pretend it is dawn
-omarchy-off-world-bg --scene 3         # jump to a scene, 1-6
+omarchy-off-world-bg --scene 7         # jump to a scene, 1-12
 omarchy-off-world-bg --dry-run --at 23:00 --rain
 ```
 
-Overrides apply the wallpaper so you can look at it. The timer puts things back
-within fifteen minutes, or run it with no arguments to restore at once.
+A systemd user timer re-checks every fifteen minutes.
 
 ### Configuration
 
 `~/.config/omarchy/off-world.conf`:
 
 ```
-RAIN=random        # random | live | always | never
-RAIN_CHANCE=0.5    # chance per spell, random mode only
+MODE=cycle         # cycle | weather | manual
+RAIN=random        # random | live | always | never  (cycle mode)
+RAIN_CHANCE=0.5    # chance per spell, random only
 RAIN_SPELL_HOURS=3 # how long one spell of weather lasts
 LAT=               # blank derives from your timezone, offline
 LON=
 ```
 
 `RAIN=live` swaps the coin for real precipitation where you are, via Open-Meteo
-(no account, no key). That is the only mode that touches the network. Location
-comes from your system timezone via `/usr/share/zoneinfo/zone.tab` — the nearest
-listed city, resolved on your machine, never IP geolocation.
+(no account, no key), without letting the weather choose the scene as well.
+Location comes from your system timezone via `/usr/share/zoneinfo/zone.tab` —
+the nearest listed city, resolved on your machine, never IP geolocation.
 
 ## Rain, falling or painted
 
-Each scene has a dry plate and a wet one — wet ground, reflections, heavy haze.
-What puts rain *in the air* is up to you.
+Each outdoor scene has a dry plate and a wet one — wet ground, reflections,
+heavy haze. Interiors have neither: they get one plate and the falling-rain
+layer leaves them alone. What puts rain *in the air* is up to you.
 
 | | Falling | Painted |
 |---|---|---|
@@ -168,21 +215,56 @@ omarchy theme set tokyo-night                              # leave the theme
 ```
 
 The theme keeps working with the timer off; backgrounds then cycle manually with
-`omarchy theme bg next` like any other theme.
+`omarchy theme bg next` like any other theme. `--mode manual` gets you the same
+thing while leaving the timer in place to notice theme changes.
 
 ## Rebuilding the art
 
 ```bash
 cd src
-python3 build.py                  # all twelve, ~7 min
+python3 build.py                  # all nineteen, ~13 min
 python3 build_rain_plates.py      # wet plates, no painted drops (animated mode)
 python3 build_static_rain.py      # wet plates with painted drops (static mode)
 python3 gen_icons.py              # the icon theme
+python3 gen_gallery.py            # docs/thumbs and GALLERY.md
 ```
 
-Scene seeds are fixed, so a rebuild reproduces the same images. Change the
-`random.Random(...)` seed at the top of a `sceneN.py` for a different layout of
-the same design. `build.py` writes straight into the installed theme.
+`src/scenes.py` is the register: which module is which scene, which phase it
+belongs to, and whether it is outdoors. Adding a scene means writing a
+`sceneN.py` with `NAME`, `LIGHT`, `OUTDOOR` and `build(rain, light)`, then
+listing it there — and in the matching table at the top of
+`bin/omarchy-off-world-bg`, which the picker reads without importing `src/` so
+that it keeps working with the repo deleted.
+
+Those two tables are the one thing here that can silently drift, so there is a
+test for it:
+
+```bash
+python3 src/test_picker.py
+```
+
+It checks the picker's table against the register, that every phase has three
+scenes and at least one of them outdoors, that the rotation visits all three,
+and that every weather code counted as wet lands on a condition that can
+actually offer a wet plate.
+
+Builds are byte-reproducible: the scene seeds are fixed, `rsvg-convert` is
+deterministic, and `post.sh` seeds its film grain from the output filename. So
+rebuilding an unchanged scene produces the identical file and `git status` stays
+clean. That matters more than it sounds — these are 2 MB JPEGs, git cannot delta
+them, and before the grain was seeded every rebuild wrote a whole new set of
+blobs into history that could never be pruned.
+
+Change the `random.Random(...)` seed at the top of a `sceneN.py` for a different
+layout of the same design. `build.py` writes straight into the installed theme.
+
+### What the images cost
+
+`plates/animated-rain` is free: its files are byte-identical to the `-rain`
+wallpapers in `backgrounds/`, so git stores one blob and both paths point at it.
+`plates/static-rain` is the only duplicated set, about 16 MB, and it buys
+`./rain-mode.sh static` switching modes instantly instead of re-rendering for
+five minutes. Everything else in the repo is one copy of one image.
 
 ## See also
 

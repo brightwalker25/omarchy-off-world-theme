@@ -1,13 +1,13 @@
-"""Render the STATIC rain plates: the wet scenes with painted falling drops.
+"""Render the STATIC rain plates into plates/static-rain.
 
-These are for anyone not running the animated rain layer - install.sh --static-rain,
-or `./rain-mode.sh static`. The default backgrounds/ set omits the painted drops
-because the shell plugin draws them live.
+The wet scenes with painted falling drops, for anyone not running the animated
+rain layer: install.sh --static-rain, or `./rain-mode.sh static`. Only outdoor
+scenes have a rain variant at all.
 """
 import os, subprocess, sys
 os.environ["OW_STREAKS"] = "1"
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import scene1, scene2, scene3, scene4, scene5, scene6
+from scenes import SCENES
 from palette import W, H, DRAW_STREAKS
 
 assert DRAW_STREAKS, "these plates need the painted drops switched on"
@@ -17,8 +17,10 @@ os.makedirs(OUT, exist_ok=True)
 os.makedirs("svg", exist_ok=True)
 RW = 3840; RH = int(RW * H // W)
 
-for i, mod in enumerate([scene1, scene2, scene3, scene4, scene5, scene6], 1):
-    stem = "%d-%s-rain" % (i, mod.NAME)
+for n, mod in SCENES:
+    if not mod.OUTDOOR:
+        continue
+    stem = "%d-%s-rain" % (n, mod.NAME)
     svg = "svg/static-%s.svg" % stem
     raw = "/tmp/ow-static-%s.png" % stem
     dst = os.path.join(OUT, "%s.jpg" % stem)

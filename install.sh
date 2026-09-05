@@ -91,3 +91,14 @@ esac
 echo
 echo "Done. Apply it with:  omarchy theme set off-world"
 echo "Check the picker:     omarchy-off-world-bg --status"
+echo
+echo "The wallpaper follows the clock by default. To change that:"
+echo "  omarchy-off-world-bg --mode weather   real conditions pick the scene"
+echo "  omarchy-off-world-bg --mode manual    nothing moves unless you move it"
+echo
+echo "To step through them by hand, bind these in ~/.config/hypr/bindings.lua:"
+echo "  omarchy-off-world-bg --next          next scene in this phase"
+echo "  omarchy-off-world-bg --prev          previous scene"
+echo "  omarchy-off-world-bg --toggle-rain   flip the wet and dry plate"
+echo "  omarchy-off-world-bg --auto          back to automatic"
+echo "A pick made by hand is held until the light changes."
