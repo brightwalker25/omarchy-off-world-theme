@@ -67,6 +67,10 @@ rather than bright; dusk and night keep their blacks. That is done in the
 generators, in `src/palette.py`, so a day scene is genuinely daylit rather than
 a night scene turned up.
 
+The wallpapers are not finished. I am still working on them, and expect to keep
+improving them over the next few months: better lighting, more detail, and
+probably more scenes.
+
 **Twenty-three icons.** A GTK icon theme of neon-noir folders with a
 magenta-to-cyan edge and colour-coded glyphs, inheriting `Yaru-magenta-dark` so
 everything it does not override still resolves.
