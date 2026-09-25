@@ -291,6 +291,11 @@ five minutes. Everything else in the repo is one copy of one image.
 
 - [GALLERY.md](GALLERY.md) — every wallpaper, the palette, the icons
 
+## Written with AI help
+
+This was written with help from AI. I have checked the code, but if you would
+prefer not to use it because AI was involved, that is your choice.
+
 ## License
 
 MIT. Omarchy is MIT too; `plugin/install-rain.py` modifies a copy of its
